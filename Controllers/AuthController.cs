@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace MessengerServer.Controllers;
 
+[ApiController]
 [Route("api/[controller]")]
 public class AuthController : ControllerBase
 {
@@ -19,7 +20,7 @@ public class AuthController : ControllerBase
     {
         if (!ModelState.IsValid)
         {
-            throw new Exception("Хуйня ошибка в говне залупа коня");
+            throw new Exception("пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅ");
         }
 
         var result = await _authService.RegisterAsync(registerDto);
@@ -32,7 +33,7 @@ public class AuthController : ControllerBase
     {
         if (!ModelState.IsValid)
         {
-            throw new Exception("Говно ошибка в хуйне министерство юстиции");
+            throw new Exception("пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ");
         }
 
         var result = await _authService.LoginAsync(loginDto);

@@ -23,7 +23,7 @@ public class AuthService : IAuthService
         // Check if user already exists
         if (_users.Any(u => u.Email == registerDto.Email))
         {
-            throw new InvalidOperationException($"Пользователь с почтой {registerDto.Email} уже существует");
+            throw new InvalidOperationException($"пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅпїЅпїЅ {registerDto.Email} пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ");
         }
 
         // Generate salt and hash password using PBKDF2
@@ -33,12 +33,12 @@ public class AuthService : IAuthService
 
         var user = new User
         {
+            Id = Guid.NewGuid(),
             Email = registerDto.Email,
             PasswordHash = passwordHash,
             PasswordSalt = Convert.ToBase64String(salt)
         };
 
-        user.Id = _users.Count + 1;
         _users.Add(user);
 
         // Generate JWT token
@@ -58,7 +58,7 @@ public class AuthService : IAuthService
         var user = _users.FirstOrDefault(u => u.Email == loginDto.Email);
         if (user == null)
         {
-            throw new UnauthorizedAccessException("Неверный email или пароль ");
+            throw new UnauthorizedAccessException("пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ email пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ ");
         }
 
         // Verify password using PBKDF2
@@ -68,7 +68,7 @@ public class AuthService : IAuthService
 
         if (computedHash != user.PasswordHash)
         {
-            return null;
+            throw new UnauthorizedAccessException("пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ email пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ ");;
         }
 
         // Generate JWT token
@@ -83,7 +83,7 @@ public class AuthService : IAuthService
         };
     }
 
-    public Task<User?> GetUserByIdAsync(int id)
+    public Task<User?> GetUserByIdAsync(Guid id)
     {
         var user = _users.FirstOrDefault(u => u.Id == id);
         return Task.FromResult(user);
