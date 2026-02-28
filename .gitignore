@@ -8,6 +8,9 @@
 
 appsettings.json
 MessengerClient/
+obj/
+.vs/
+bin/
 
 # User-specific files
 *.rsuser
