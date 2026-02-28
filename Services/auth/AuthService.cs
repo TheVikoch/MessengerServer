@@ -18,12 +18,12 @@ public class AuthService : IAuthService
         _configuration = configuration;
     }
 
-    public async Task<JwtResponseDto?> RegisterAsync(RegisterDto registerDto)
+    public async Task<JwtResponseDto> RegisterAsync(RegisterDto registerDto)
     {
         // Check if user already exists
         if (_users.Any(u => u.Email == registerDto.Email))
         {
-            return null;
+            throw new InvalidOperationException($"Пользователь с почтой {registerDto.Email} уже существует");
         }
 
         // Generate salt and hash password using PBKDF2
@@ -53,12 +53,12 @@ public class AuthService : IAuthService
         };
     }
 
-    public async Task<JwtResponseDto?> LoginAsync(LoginDto loginDto)
+    public async Task<JwtResponseDto> LoginAsync(LoginDto loginDto)
     {
         var user = _users.FirstOrDefault(u => u.Email == loginDto.Email);
         if (user == null)
         {
-            return null;
+            throw new UnauthorizedAccessException("Неверный email или пароль ");
         }
 
         // Verify password using PBKDF2

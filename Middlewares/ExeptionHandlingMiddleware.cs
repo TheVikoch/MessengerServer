@@ -26,6 +26,7 @@ namespace MessengerServer.Middlewares
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "Конфликт");
                 await HandleExeptionAsync(httpContext,
                     ex.Message,
                     HttpStatusCode.Conflict,

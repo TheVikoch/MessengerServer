@@ -3,7 +3,6 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace MessengerServer.Controllers
 {
-    [ApiController]
     [Route("api/[controller]")]
     public class TestController : ControllerBase
     {

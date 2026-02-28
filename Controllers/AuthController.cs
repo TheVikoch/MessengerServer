@@ -4,7 +4,6 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace MessengerServer.Controllers;
 
-[ApiController]
 [Route("api/[controller]")]
 public class AuthController : ControllerBase
 {
@@ -20,16 +19,11 @@ public class AuthController : ControllerBase
     {
         if (!ModelState.IsValid)
         {
-            return BadRequest(ModelState);
+            throw new Exception("Хуйня ошибка в говне залупа коня");
         }
 
         var result = await _authService.RegisterAsync(registerDto);
         
-        if (result == null)
-        {
-            return BadRequest(new { message = "User with this email already exists" });
-        }
-
         return Ok(result);
     }
 
@@ -38,16 +32,11 @@ public class AuthController : ControllerBase
     {
         if (!ModelState.IsValid)
         {
-            return BadRequest(ModelState);
+            throw new Exception("Говно ошибка в хуйне министерство юстиции");
         }
 
         var result = await _authService.LoginAsync(loginDto);
         
-        if (result == null)
-        {
-            return Unauthorized(new { message = "Invalid email or password" });
-        }
-
         return Ok(result);
     }
 }
