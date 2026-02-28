@@ -1,17 +1,14 @@
+using MessengerServer.Middlewares;
+
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
 
 var app = builder.Build();
 
-if (!app.Environment.IsDevelopment())
-{
-    app.UseExceptionHandler("/error");
-    app.UseHsts();
-}
+app.UseMiddleware<ExeptionHandlingMiddleware>();
 
 app.UseHttpsRedirection();
-
 app.UseRouting();
 app.UseAuthorization();
 
