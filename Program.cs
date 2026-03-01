@@ -7,8 +7,15 @@ using MessengerServer.Middlewares;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .ConfigureApiBehaviorOptions(options =>
+    {
+        // Отключает автоматический возврат 400 при невалидном ModelState
+        options.SuppressModelStateInvalidFilter = true;
+        
+        // Отключает автоматическое маппинг клиентских ошибок
+        options.SuppressMapClientErrors = true;
+    });
 builder.Services.AddSingleton<MessengerServer.Services.auth.IAuthService, MessengerServer.Services.auth.AuthService>();
 
 // Configure JWT authentication
