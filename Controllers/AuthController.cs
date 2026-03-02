@@ -18,9 +18,10 @@ public class AuthController : ControllerBase
     [HttpPost("register")]
     public async Task<IActionResult> Register(RegisterDto registerDto)
     {
+        // это походу вообще никогда не будет работать
         if (!ModelState.IsValid)
         {
-            throw new Exception("пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅ");
+            return BadRequest(ModelState);
         }
 
         var result = await _authService.RegisterAsync(registerDto);
@@ -31,9 +32,10 @@ public class AuthController : ControllerBase
     [HttpPost("login")]
     public async Task<IActionResult> Login(LoginDto loginDto)
     {
+        // это походу вообще никогда не будет работать
         if (!ModelState.IsValid)
         {
-            throw new Exception("пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ");
+            return BadRequest(ModelState);
         }
 
         var result = await _authService.LoginAsync(loginDto);

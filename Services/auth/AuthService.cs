@@ -23,7 +23,7 @@ public class AuthService : IAuthService
         // Check if user already exists
         if (_users.Any(u => u.Email == registerDto.Email))
         {
-            throw new InvalidOperationException($"������������ � ������ {registerDto.Email} ��� ����������");
+            throw new UserAlreadyExistsException(registerDto.Email);
         }
 
         // Generate salt and hash password using PBKDF2
@@ -58,7 +58,7 @@ public class AuthService : IAuthService
         var user = _users.FirstOrDefault(u => u.Email == loginDto.Email);
         if (user == null)
         {
-            throw new UnauthorizedAccessException("�������� email ��� ������ ");
+            throw new UnauthorizedAccessException("Invalid email or password.");
         }
 
         // Verify password using PBKDF2
@@ -68,7 +68,7 @@ public class AuthService : IAuthService
 
         if (computedHash != user.PasswordHash)
         {
-            throw new UnauthorizedAccessException("�������� email ��� ������ ");;
+            throw new UnauthorizedAccessException("Invalid email or password.");
         }
 
         // Generate JWT token
