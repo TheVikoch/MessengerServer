@@ -6,6 +6,11 @@
 # dotenv files
 .env
 
+# Docker files (contain sensitive data)
+Dockerfile
+docker-compose.yml
+.dockerignore
+
 appsettings.json
 MessengerClient/
 obj/
