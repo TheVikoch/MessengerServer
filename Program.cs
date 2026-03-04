@@ -1,9 +1,8 @@
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
-using Microsoft.Net.Http.Headers;
-
 using MessengerServer.Middlewares;
+using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -41,11 +40,31 @@ builder.Services.AddAuthentication(options =>
     };
 });
 
+// Rate Limiting
+builder.Services.AddRateLimiter(options =>
+{
+    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
+            factory: partition => new FixedWindowRateLimiterOptions
+            {
+                AutoReplenishment = true,
+                PermitLimit = 100, // запросов в минуту (window)
+                QueueLimit = 0, // запросов в очереди если >PermitLimit
+                Window = TimeSpan.FromMinutes(1) // окно за которое считается лимит
+            }));
+    
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+});
+
+
 var app = builder.Build();
 
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 
-app.UseHttpsRedirection();
+app.UseRateLimiter();
+
+app.UseHttpsRedirection(); // ?
 app.UseRouting();
 app.UseAuthentication();
 app.UseAuthorization();
