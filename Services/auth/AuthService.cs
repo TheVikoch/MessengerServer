@@ -95,14 +95,13 @@ public class AuthService : IAuthService
         var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == id);
         if (user == null) return null;
 
-        // Decrypt email before returning
         try
         {
             user.Email = _encryptionService.Decrypt(user.Email);
         }
         catch
         {
-            // If decryption fails, return stored value (to avoid throwing for legacy/plain emails)
+            throw new Exception("Failed to decrypt user email.");
         }
 
         return user;
