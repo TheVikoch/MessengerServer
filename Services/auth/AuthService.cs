@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using MessengerServer.Models;
 using MessengerServer.Models.DTOs;
+using MessengerServer.Services.encryption;
 using Microsoft.IdentityModel.Tokens;
 
 namespace MessengerServer.Services.auth;
@@ -12,16 +13,19 @@ public class AuthService : IAuthService
 {
     private readonly List<User> _users = new();
     private readonly IConfiguration _configuration;
+    private readonly IEncryptionService _encryptionService;
 
-    public AuthService(IConfiguration configuration)
+    public AuthService(IConfiguration configuration, IEncryptionService encryptionService)
     {
         _configuration = configuration;
+        _encryptionService = encryptionService;
     }
 
     public async Task<JwtResponseDto> RegisterAsync(RegisterDto registerDto)
     {
-        // Check if user already exists
-        if (_users.Any(u => u.Email == registerDto.Email))
+        // Check if user already exists (compare encrypted emails)
+        var encryptedEmail = _encryptionService.Encrypt(registerDto.Email);
+        if (_users.Any(u => u.Email == encryptedEmail))
         {
             throw new UserAlreadyExistsException(registerDto.Email);
         }
@@ -34,7 +38,7 @@ public class AuthService : IAuthService
         var user = new User
         {
             Id = Guid.NewGuid(),
-            Email = registerDto.Email,
+            Email = encryptedEmail,
             PasswordHash = passwordHash,
             PasswordSalt = Convert.ToBase64String(salt)
         };
@@ -48,20 +52,20 @@ public class AuthService : IAuthService
         {
             Token = token,
             Expires = DateTime.UtcNow.AddDays(7),
-            Email = user.Email,
+            Email = registerDto.Email,
             UserId = user.Id
         };
     }
 
     public async Task<JwtResponseDto> LoginAsync(LoginDto loginDto)
     {
-        var user = _users.FirstOrDefault(u => u.Email == loginDto.Email);
+        var encryptedEmail = _encryptionService.Encrypt(loginDto.Email);
+        var user = _users.FirstOrDefault(u => u.Email == encryptedEmail);
         if (user == null)
         {
             throw new UnauthorizedAccessException("Invalid email or password.");
         }
 
-        // Verify password using PBKDF2
         var saltBytes = Convert.FromBase64String(user.PasswordSalt);
         using var pbkdf2 = new Rfc2898DeriveBytes(loginDto.Password, saltBytes, 10000, HashAlgorithmName.SHA256);
         var computedHash = Convert.ToBase64String(pbkdf2.GetBytes(256 / 8));
@@ -71,14 +75,13 @@ public class AuthService : IAuthService
             throw new UnauthorizedAccessException("Invalid email or password.");
         }
 
-        // Generate JWT token
-        var token = GenerateJwtToken(user);
+        var token = GenerateJwtToken(user, loginDto.Email);
 
         return new JwtResponseDto
         {
             Token = token,
             Expires = DateTime.UtcNow.AddDays(7),
-            Email = user.Email,
+            Email = loginDto.Email,
             UserId = user.Id
         };
     }
@@ -89,17 +92,19 @@ public class AuthService : IAuthService
         return Task.FromResult(user);
     }
 
-    private string GenerateJwtToken(User user)
+    private string GenerateJwtToken(User user, string? plainEmail = null)
     {
         var jwtSettings = _configuration.GetSection("Jwt");
         var key = Encoding.UTF8.GetBytes(jwtSettings["Key"] ?? "default_secret_key_change_in_production");
 
+        var email = plainEmail ?? _encryptionService.Decrypt(user.Email);
+
         var claims = new[]
         {
             new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
-            new Claim(JwtRegisteredClaimNames.Email, user.Email),
+            new Claim(JwtRegisteredClaimNames.Email, email),
             new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
-            new Claim(ClaimTypes.Name, user.Email)
+            new Claim(ClaimTypes.Name, email)
         };
 
         var credentials = new SigningCredentials(

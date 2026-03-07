@@ -11,11 +11,12 @@ builder.Services.AddControllers()
     {
         // Отключает автоматический возврат 400 при невалидном ModelState
         options.SuppressModelStateInvalidFilter = true;
-        
+
         // Отключает автоматическое маппинг клиентских ошибок
         options.SuppressMapClientErrors = true;
     });
 builder.Services.AddSingleton<MessengerServer.Services.auth.IAuthService, MessengerServer.Services.auth.AuthService>();
+builder.Services.AddSingleton<MessengerServer.Services.encryption.IEncryptionService, MessengerServer.Services.encryption.EncryptionService>();
 
 // Configure JWT authentication
 var jwtSettings = builder.Configuration.GetSection("Jwt");
