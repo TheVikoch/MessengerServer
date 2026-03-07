@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using MessengerServer.Middlewares;
 using System.Threading.RateLimiting;
+using Microsoft.EntityFrameworkCore;
+using MessengerServer.Data;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -15,7 +17,11 @@ builder.Services.AddControllers()
         // Отключает автоматическое маппинг клиентских ошибок
         options.SuppressMapClientErrors = true;
     });
-builder.Services.AddSingleton<MessengerServer.Services.auth.IAuthService, MessengerServer.Services.auth.AuthService>();
+// Configure EF Core (PostgreSQL)
+builder.Services.AddDbContext<AppDbContext>(options =>
+    options.UseNpgsql(builder.Configuration.GetConnectionString("PostgreSQL") ?? builder.Configuration.GetConnectionString("DefaultConnection") ?? "Host=localhost;Port=5432;Database=MessengerDB;Username=postgres;Password=postgres"));
+
+builder.Services.AddScoped<MessengerServer.Services.auth.IAuthService, MessengerServer.Services.auth.AuthService>();
 builder.Services.AddSingleton<MessengerServer.Services.encryption.IEncryptionService, MessengerServer.Services.encryption.EncryptionService>();
 
 // Configure JWT authentication
@@ -62,6 +68,13 @@ builder.Services.AddRateLimiter(options =>
 var app = builder.Build();
 
 app.UseMiddleware<ExceptionHandlingMiddleware>();
+
+// Ensure database and tables are created without migrations
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    db.Database.EnsureCreated();
+}
 
 app.UseRateLimiter();
 
