@@ -51,12 +51,31 @@ public class AuthService : IAuthService
         // Use decrypted email for token/response
         var token = GenerateJwtToken(new User { Id = user.Id, Email = registerDto.Email });
 
+        // create refresh token and session for the newly registered user
+        var refreshToken = GenerateRefreshToken();
+        var session = new Session
+        {
+            Id = Guid.NewGuid(),
+            UserId = user.Id,
+            RefreshToken = refreshToken,
+            ExpiresAt = DateTime.UtcNow.AddDays(30),
+            DeviceInfo = string.Empty,
+            Ip = string.Empty,
+            IsRevoked = false,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        _context.Sessions.Add(session);
+        await _context.SaveChangesAsync();
+
         return new JwtResponseDto
         {
             Token = token,
             Expires = DateTime.UtcNow.AddDays(7),
-            Email = user.Email,
-            UserId = user.Id
+            Email = registerDto.Email,
+            UserId = user.Id,
+            RefreshToken = refreshToken,
+            SessionId = session.Id
         };
     }
 
@@ -78,16 +97,73 @@ public class AuthService : IAuthService
             throw new UnauthorizedAccessException("Invalid email or password.");
         }
 
-        // Use decrypted email for token/response
         var token = GenerateJwtToken(new User { Id = user.Id, Email = loginDto.Email });
+
+        var device = loginDto.DeviceInfo ?? string.Empty;
+        var ip = loginDto.Ip ?? string.Empty;
+
+        var existingSession = await _context.Sessions.FirstOrDefaultAsync(s =>
+            s.UserId == user.Id && s.DeviceInfo == device && s.Ip == ip && !s.IsRevoked && s.ExpiresAt > DateTime.UtcNow);
+
+        if (existingSession != null)
+        {
+
+            existingSession.ExpiresAt = DateTime.UtcNow.AddDays(30);
+            await _context.SaveChangesAsync();
+
+            return new JwtResponseDto
+            {
+                Token = token,
+                Expires = DateTime.UtcNow.AddDays(7),
+                Email = loginDto.Email,
+                UserId = user.Id,
+                RefreshToken = existingSession.RefreshToken,
+                SessionId = existingSession.Id
+            };
+        }
+
+        var refreshToken = GenerateRefreshToken();
+        var session = new Session
+        {
+            Id = Guid.NewGuid(),
+            UserId = user.Id,
+            RefreshToken = refreshToken,
+            ExpiresAt = DateTime.UtcNow.AddDays(30),
+            DeviceInfo = device,
+            Ip = ip,
+            IsRevoked = false,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        _context.Sessions.Add(session);
+        await _context.SaveChangesAsync();
 
         return new JwtResponseDto
         {
             Token = token,
             Expires = DateTime.UtcNow.AddDays(7),
             Email = loginDto.Email,
-            UserId = user.Id
+            UserId = user.Id,
+            RefreshToken = refreshToken,
+            SessionId = session.Id
         };
+    }
+
+    public async Task<IEnumerable<Session>> GetSessionsForUserAsync(Guid userId)
+    {
+        return await _context.Sessions
+            .Where(s => s.UserId == userId)
+            .OrderByDescending(s => s.CreatedAt)
+            .ToListAsync();
+    }
+
+    public async Task RevokeSessionAsync(Guid sessionId, Guid userId)
+    {
+        var session = await _context.Sessions.FirstOrDefaultAsync(s => s.Id == sessionId && s.UserId == userId);
+        if (session == null) throw new KeyNotFoundException("Session not found");
+
+        session.IsRevoked = true;
+        await _context.SaveChangesAsync();
     }
 
     public async Task<User?> GetUserByIdAsync(Guid id)
@@ -136,5 +212,11 @@ public class AuthService : IAuthService
         );
 
         return new JwtSecurityTokenHandler().WriteToken(token);
+    }
+
+    private static string GenerateRefreshToken()
+    {
+        var randomBytes = RandomNumberGenerator.GetBytes(64);
+        return Convert.ToBase64String(randomBytes);
     }
 }

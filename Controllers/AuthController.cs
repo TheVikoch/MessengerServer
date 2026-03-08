@@ -42,4 +42,20 @@ public class AuthController : ControllerBase
         
         return Ok(result);
     }
+
+    [HttpGet("sessions/{userId:guid}")]
+    public async Task<IActionResult> GetSessions(Guid userId)
+    {
+        var sessions = await _authService.GetSessionsForUserAsync(userId);
+        return Ok(sessions);
+    }
+
+    public class RevokeSessionDto { public Guid SessionId { get; set; } public Guid UserId { get; set; } }
+
+    [HttpPost("sessions/revoke")]
+    public async Task<IActionResult> RevokeSession(RevokeSessionDto dto)
+    {
+        await _authService.RevokeSessionAsync(dto.SessionId, dto.UserId);
+        return Ok(new { message = "Session revoked" });
+    }
 }

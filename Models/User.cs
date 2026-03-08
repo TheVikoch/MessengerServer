@@ -7,7 +7,10 @@ public class User
     public string PasswordHash { get; set; } = string.Empty;
     public string PasswordSalt { get; set; } = string.Empty;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
-
+    
     public bool TwoFactorEnabled { get; set; } = false;
     public string? TwoFactorSecret { get; set; }
+
+    // Navigation property for sessions
+    public IList<Session> Sessions { get; set; } = new List<Session>();
 }

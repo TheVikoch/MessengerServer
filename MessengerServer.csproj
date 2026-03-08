@@ -10,6 +10,17 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="Database\**" />
+    <Compile Remove="Infrastructure\**" />
+    <Content Remove="Database\**" />
+    <Content Remove="Infrastructure\**" />
+    <EmbeddedResource Remove="Database\**" />
+    <EmbeddedResource Remove="Infrastructure\**" />
+    <None Remove="Database\**" />
+    <None Remove="Infrastructure\**" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="BCrypt.Net-Next" Version="4.1.0" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.0" />
@@ -21,8 +32,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Folder Include="Database\" />
-    <Folder Include="Infrastructure\" />
     <Folder Include="Migrations\" />
   </ItemGroup>
 

@@ -10,4 +10,8 @@ public class LoginDto
 
     [Required]
     public string Password { get; set; } = string.Empty;
+
+    // Optional fields to help identify device / ip for session tracking
+    public string? DeviceInfo { get; set; }
+    public string? Ip { get; set; }
 }
