@@ -11,6 +11,8 @@ public class AppDbContext : DbContext
 
     public DbSet<User> Users { get; set; } = null!;
     public DbSet<Session> Sessions { get; set; } = null!;
+    public DbSet<Conversation> Conversations { get; set; } = null!;
+    public DbSet<ConversationMember> ConversationMembers { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -24,6 +26,34 @@ public class AppDbContext : DbContext
             entity.Property(e => e.PasswordHash).IsRequired();
             entity.Property(e => e.PasswordSalt).IsRequired();
             entity.HasIndex(e => e.Email).IsUnique();
+        });
+
+        modelBuilder.Entity<Conversation>(entity =>
+        {
+            entity.ToTable("Conversations");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Type).IsRequired();
+            entity.Property(e => e.Name).HasMaxLength(256);
+            entity.Property(e => e.IsDeleted).IsRequired();
+        });
+
+        modelBuilder.Entity<ConversationMember>(entity =>
+        {
+            entity.ToTable("ConversationMembers");
+            entity.HasKey(e => new { e.ConversationId, e.UserId });
+            entity.Property(e => e.Role).IsRequired();
+            entity.Property(e => e.JoinedAt).IsRequired();
+            entity.Property(e => e.IsPinned).IsRequired();
+
+            entity.HasOne(e => e.Conversation)
+                .WithMany(c => c.Members)
+                .HasForeignKey(e => e.ConversationId)
+                .OnDelete(Microsoft.EntityFrameworkCore.DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.User)
+                .WithMany()
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(Microsoft.EntityFrameworkCore.DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<Session>(entity =>
