@@ -10,4 +10,5 @@ public interface IAuthService
     Task<User?> GetUserByIdAsync(Guid id);
     Task<IEnumerable<Session>> GetSessionsForUserAsync(Guid userId);
     Task RevokeSessionAsync(Guid sessionId, Guid userId);
+    Task<bool> ValidateSessionAsync(Guid sessionId, Guid userId);
 }

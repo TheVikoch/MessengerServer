@@ -48,9 +48,6 @@ public class AuthService : IAuthService
         _context.Users.Add(user);
         await _context.SaveChangesAsync();
 
-        // Use decrypted email for token/response
-        var token = GenerateJwtToken(new User { Id = user.Id, Email = registerDto.Email });
-
         // create refresh token and session for the newly registered user
         var refreshToken = GenerateRefreshToken();
         var session = new Session
@@ -67,6 +64,9 @@ public class AuthService : IAuthService
 
         _context.Sessions.Add(session);
         await _context.SaveChangesAsync();
+
+        // Use decrypted email for token/response
+        var token = GenerateJwtToken(new User { Id = user.Id, Email = registerDto.Email }, session.Id);
 
         return new JwtResponseDto
         {
@@ -97,19 +97,19 @@ public class AuthService : IAuthService
             throw new UnauthorizedAccessException("Invalid email or password.");
         }
 
-        var token = GenerateJwtToken(new User { Id = user.Id, Email = loginDto.Email });
-
         var device = loginDto.DeviceInfo ?? string.Empty;
         var ip = loginDto.Ip ?? string.Empty;
 
+        // First try to find an active (non-revoked) session from the same device
         var existingSession = await _context.Sessions.FirstOrDefaultAsync(s =>
             s.UserId == user.Id && s.DeviceInfo == device && s.Ip == ip && !s.IsRevoked && s.ExpiresAt > DateTime.UtcNow);
 
         if (existingSession != null)
         {
-
             existingSession.ExpiresAt = DateTime.UtcNow.AddDays(30);
             await _context.SaveChangesAsync();
+
+            var token = GenerateJwtToken(new User { Id = user.Id, Email = loginDto.Email }, existingSession.Id);
 
             return new JwtResponseDto
             {
@@ -122,6 +122,33 @@ public class AuthService : IAuthService
             };
         }
 
+        // Check if there's a revoked session from the same device - restore it
+        var revokedSession = await _context.Sessions.FirstOrDefaultAsync(s =>
+            s.UserId == user.Id && s.DeviceInfo == device && s.Ip == ip && s.IsRevoked);
+
+        if (revokedSession != null)
+        {
+            // Restore the revoked session
+            revokedSession.IsRevoked = false;
+            revokedSession.ExpiresAt = DateTime.UtcNow.AddDays(30);
+            // Generate new refresh token for security
+            revokedSession.RefreshToken = GenerateRefreshToken();
+            await _context.SaveChangesAsync();
+
+            var token = GenerateJwtToken(new User { Id = user.Id, Email = loginDto.Email }, revokedSession.Id);
+
+            return new JwtResponseDto
+            {
+                Token = token,
+                Expires = DateTime.UtcNow.AddDays(7),
+                Email = loginDto.Email,
+                UserId = user.Id,
+                RefreshToken = revokedSession.RefreshToken,
+                SessionId = revokedSession.Id
+            };
+        }
+
+        // No session exists for this device - create a new one
         var refreshToken = GenerateRefreshToken();
         var session = new Session
         {
@@ -138,9 +165,11 @@ public class AuthService : IAuthService
         _context.Sessions.Add(session);
         await _context.SaveChangesAsync();
 
+        var tokenNew = GenerateJwtToken(new User { Id = user.Id, Email = loginDto.Email }, session.Id);
+
         return new JwtResponseDto
         {
-            Token = token,
+            Token = tokenNew,
             Expires = DateTime.UtcNow.AddDays(7),
             Email = loginDto.Email,
             UserId = user.Id,
@@ -166,6 +195,17 @@ public class AuthService : IAuthService
         await _context.SaveChangesAsync();
     }
 
+    public async Task<bool> ValidateSessionAsync(Guid sessionId, Guid userId)
+    {
+        var session = await _context.Sessions.FirstOrDefaultAsync(s =>
+            s.Id == sessionId &&
+            s.UserId == userId &&
+            !s.IsRevoked &&
+            s.ExpiresAt > DateTime.UtcNow);
+        
+        return session != null;
+    }
+
     public async Task<User?> GetUserByIdAsync(Guid id)
     {
         var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == id);
@@ -183,18 +223,23 @@ public class AuthService : IAuthService
         return user;
     }
 
-    private string GenerateJwtToken(User user)
+    private string GenerateJwtToken(User user, Guid? sessionId = null)
     {
         var jwtSettings = _configuration.GetSection("Jwt");
         var key = Encoding.UTF8.GetBytes(jwtSettings["Key"] ?? "default_secret_key_change_in_production");
 
-        var claims = new[]
+        var claims = new List<Claim>
         {
             new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
             new Claim(JwtRegisteredClaimNames.Email, user.Email),
             new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
             new Claim(ClaimTypes.Name, user.Email)
         };
+
+        if (sessionId.HasValue)
+        {
+            claims.Add(new Claim("sessionId", sessionId.Value.ToString()));
+        }
 
         var credentials = new SigningCredentials(
             new SymmetricSecurityKey(key),

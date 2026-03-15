@@ -44,6 +44,37 @@ builder.Services.AddAuthentication(options =>
         ValidAudience = jwtSettings["Audience"] ?? "MessengerClient",
         IssuerSigningKey = new SymmetricSecurityKey(key)
     };
+
+    options.Events = new JwtBearerEvents
+    {
+        OnTokenValidated = async context =>
+        {
+            var authService = context.HttpContext.RequestServices.GetRequiredService<MessengerServer.Services.auth.IAuthService>();
+            
+            // Get sessionId from token claims
+            var sessionIdClaim = context.Principal?.FindFirst("sessionId");
+            var userIdClaim = context.Principal?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
+            
+            if (sessionIdClaim == null || userIdClaim == null)
+            {
+                context.Fail("Session identifier missing from token");
+                return;
+            }
+
+            if (!Guid.TryParse(sessionIdClaim.Value, out var sessionId) || !Guid.TryParse(userIdClaim.Value, out var userId))
+            {
+                context.Fail("Invalid session or user identifier format");
+                return;
+            }
+
+            // Validate session in database
+            var isValid = await authService.ValidateSessionAsync(sessionId, userId);
+            if (!isValid)
+            {
+                context.Fail("Session is invalid, revoked, or expired");
+            }
+        }
+    };
 });
 
 builder.Services.AddRateLimiter(options =>
