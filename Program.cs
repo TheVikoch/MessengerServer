@@ -25,6 +25,15 @@ builder.Services.AddScoped<MessengerServer.Services.auth.IAuthService, Messenger
 builder.Services.AddScoped<MessengerServer.Services.encryption.IEncryptionService, MessengerServer.Services.encryption.EncryptionService>();
 builder.Services.AddScoped<MessengerServer.Services.chat.IChatService, MessengerServer.Services.chat.ChatService>();
 
+// Register MessageService (core implementation)
+builder.Services.AddScoped<MessengerServer.Services.messages.IMessageService, MessengerServer.Services.messages.MessageService>();
+
+// Register WebSocket Notifier
+builder.Services.AddScoped<MessengerServer.Services.websocket.IWebSocketNotifier, MessengerServer.Services.websocket.WebSocketNotifier>();
+
+// Add SignalR
+builder.Services.AddSignalR();
+
 var jwtSettings = builder.Configuration.GetSection("Jwt");
 var key = Encoding.UTF8.GetBytes(jwtSettings["Key"] ?? "default_secret_key_change_in_production");
 
@@ -114,5 +123,22 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
-    
+
+// Map SignalR Hub
+app.MapHub<MessengerServer.Hubs.MessengerHub>("/messengerHub");
+
+// Configure SignalR to use JWT authentication
+app.Use(async (context, next) =>
+{
+    if (context.Request.Path.StartsWithSegments("/messengerHub"))
+    {
+        var token = context.Request.Query["access_token"];
+        if (!string.IsNullOrEmpty(token))
+        {
+            context.Request.Headers["Authorization"] = $"Bearer {token}";
+        }
+    }
+    await next();
+});
+
 app.Run();

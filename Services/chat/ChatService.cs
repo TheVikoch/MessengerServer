@@ -34,15 +34,13 @@ namespace MessengerServer.Services.chat
             }
 
             // Check if personal chat already exists between these two users
-            var existingChat = await _context.ConversationMembers
-                .Where(cm => cm.UserId == currentUserId)
-                .Join(_context.ConversationMembers,
-                    cm1 => cm1.ConversationId,
-                    cm2 => cm2.ConversationId,
-                    (cm1, cm2) => new { cm1, cm2 })
-                .Where(x => x.cm1.UserId == currentUserId && x.cm2.UserId == targetUser.Id && x.cm1.Conversation != null && x.cm1.Conversation.Type == "personal")
-                .Select(x => x.cm1.Conversation)
-                .FirstOrDefaultAsync();
+           var existingChat = await _context.Conversations
+            .Where(c => c.Type == "personal")
+            .Where(c => c.Members.Any(m => m.UserId == currentUserId))
+            .Where(c => c.Members.Any(m => m.UserId == targetUser.Id))
+            .FirstOrDefaultAsync();
+
+
 
             if (existingChat != null && !existingChat.IsDeleted)
             {
@@ -306,44 +304,38 @@ namespace MessengerServer.Services.chat
         private async Task<ConversationDto> GetConversationDtoAsync(Guid conversationId, Guid requestingUserId)
         {
             var conversation = await _context.Conversations
-                .FirstOrDefaultAsync(c => c.Id == conversationId);
+                .Where(c => c.Id == conversationId)
+                .Select(c => new ConversationDto
+                {
+                    Id = c.Id,
+                    Type = c.Type,
+                    Name = c.Name,
+                    CreatedAt = c.CreatedAt,
+                    LastMessageAt = c.LastMessageAt,
+                    IsDeleted = c.IsDeleted,
+                    Members = c.Members
+                        .OrderBy(m => m.JoinedAt)
+                        .Select(m => new ConversationMemberDto
+                        {
+                            UserId = m.UserId,
+                            User = new UserDto
+                            {
+                                Id = m.User.Id,
+                                Email = m.User.Email
+                            },
+                            Role = m.Role,
+                            JoinedAt = m.JoinedAt,
+                            IsPinned = m.IsPinned
+                        })
+                        .ToList()
+                })
+                .FirstOrDefaultAsync();
 
             if (conversation == null)
-            {
                 throw new KeyNotFoundException("Conversation not found");
-            }
 
-            var members = await _context.ConversationMembers
-                .Where(cm => cm.ConversationId == conversationId)
-                .Include(cm => cm.User)
-                .OrderBy(cm => cm.JoinedAt)
-                .Select(cm => new ConversationMemberDto
-                {
-                    UserId = cm.UserId,
-                    User = cm.User != null ? new UserDto
-                    {
-                        Id = cm.User.Id,
-                        Email = cm.User.Email ?? string.Empty // Note: This is encrypted email
-                    } : new UserDto(),
-                    Role = cm.Role,
-                    JoinedAt = cm.JoinedAt,
-                    IsPinned = cm.IsPinned
-                })
-                .ToListAsync();
-
-            // Get the current user's member info (for pinned status, role, etc.)
-            var currentUserMember = members.FirstOrDefault(m => m.UserId == requestingUserId);
-
-            return new ConversationDto
-            {
-                Id = conversation.Id,
-                Type = conversation.Type,
-                Name = conversation.Name,
-                CreatedAt = conversation.CreatedAt,
-                LastMessageAt = conversation.LastMessageAt,
-                IsDeleted = conversation.IsDeleted,
-                Members = members
-            };
+            return conversation;
         }
+
     }
 }
