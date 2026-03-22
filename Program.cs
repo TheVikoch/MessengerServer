@@ -57,6 +57,17 @@ builder.Services.AddAuthentication(options =>
 
     options.Events = new JwtBearerEvents
     {
+        OnMessageReceived = context =>
+        {
+            // Allow SignalR to pass JWT via query string (?access_token=...) for WebSocket connections.
+            var accessToken = context.Request.Query["access_token"];
+            var path = context.HttpContext.Request.Path;
+            if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/messengerHub"))
+            {
+                context.Token = accessToken;
+            }
+            return Task.CompletedTask;
+        },
         OnTokenValidated = async context =>
         {
             var authService = context.HttpContext.RequestServices.GetRequiredService<MessengerServer.Services.auth.IAuthService>();
@@ -126,19 +137,5 @@ app.MapControllers();
 
 // Map SignalR Hub
 app.MapHub<MessengerServer.Hubs.MessengerHub>("/messengerHub");
-
-// Configure SignalR to use JWT authentication
-app.Use(async (context, next) =>
-{
-    if (context.Request.Path.StartsWithSegments("/messengerHub"))
-    {
-        var token = context.Request.Query["access_token"];
-        if (!string.IsNullOrEmpty(token))
-        {
-            context.Request.Headers["Authorization"] = $"Bearer {token}";
-        }
-    }
-    await next();
-});
 
 app.Run();

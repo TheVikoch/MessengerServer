@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -21,16 +21,24 @@ namespace MessengerServer.Services.chat
             _encryptionService = encryptionService;
         }
 
-        public async Task<ConversationDto> CreatePersonalChatAsync(Guid currentUserId, string userEmail)
+        public async Task<ConversationDto> CreatePersonalChatAsync(Guid currentUserId, string? userEmail, string? userDisplayName)
         {
-            // Encrypt the email for lookup
-            var encryptedEmail = _encryptionService.Encrypt(userEmail);
-            
-            // Find the target user
-            var targetUser = await _context.Users.FirstOrDefaultAsync(u => u.Email == encryptedEmail);
+            User? targetUser = null;
+
+            if (!string.IsNullOrWhiteSpace(userEmail))
+            {
+                var encryptedEmail = _encryptionService.Encrypt(userEmail);
+                targetUser = await _context.Users.FirstOrDefaultAsync(u => u.Email == encryptedEmail);
+            }
+            else if (!string.IsNullOrWhiteSpace(userDisplayName))
+            {
+                targetUser = await _context.Users.FirstOrDefaultAsync(u => u.DisplayName == userDisplayName);
+            }
+
             if (targetUser == null)
             {
-                throw new KeyNotFoundException($"User with email {userEmail} not found");
+                var identifier = userEmail ?? userDisplayName ?? string.Empty;
+                throw new KeyNotFoundException($"User with identifier {identifier} not found");
             }
 
             // Check if personal chat already exists between these two users
@@ -321,7 +329,8 @@ namespace MessengerServer.Services.chat
                             User = new UserDto
                             {
                                 Id = m.User.Id,
-                                Email = m.User.Email
+                                Email = m.User.Email,
+                                DisplayName = m.User.DisplayName ?? string.Empty
                             },
                             Role = m.Role,
                             JoinedAt = m.JoinedAt,
@@ -339,3 +348,4 @@ namespace MessengerServer.Services.chat
 
     }
 }
+

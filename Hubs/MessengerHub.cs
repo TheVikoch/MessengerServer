@@ -160,7 +160,7 @@ namespace MessengerServer.Hubs
                 UserId = userId
             };
 
-            await SendToConversationExceptSenderAsync(conversationId, readEvent, userId);
+            await SendEventToConversationExceptSenderAsync(conversationId, "message_read", readEvent);
         }
 
         /// <summary>
@@ -193,7 +193,7 @@ namespace MessengerServer.Hubs
             };
 
             // Отправляем всем участникам беседы (включая отправителя)
-            await SendToConversationAsync(conversationId, newMessageEvent);
+            await SendEventToConversationAsync(conversationId, "new_message", newMessageEvent);
         }
 
         /// <summary>
@@ -202,8 +202,10 @@ namespace MessengerServer.Hubs
         public async Task SendTypingIndicator(Guid conversationId, bool isTyping, string? userName = null)
         {
             var userId = GetUserIdFromContext();
+            Console.WriteLine($"[HUB] SendTypingIndicator called: ConnectionId={Context.ConnectionId}, UserId={userId}, ConversationId={conversationId}, IsTyping={isTyping}, UserName={userName}");
             if (userId == Guid.Empty)
             {
+                Console.WriteLine("[HUB] SendTypingIndicator FAILED: UserId is empty (unauthorized)");
                 throw new HubException("Unauthorized");
             }
 
@@ -216,25 +218,26 @@ namespace MessengerServer.Hubs
             };
 
             // Отправляем другим участникам (не себе)
-            await SendToConversationExceptSenderAsync(conversationId, typingEvent, userId);
+            await SendEventToConversationExceptSenderAsync(conversationId, "typing", typingEvent);
+            Console.WriteLine($"[HUB] SendTypingIndicator delivered: ConversationId={conversationId}, UserId={userId}, IsTyping={isTyping}");
         }
 
         /// <summary>
         /// Отправить событие всем участникам беседы
         /// </summary>
-        private async Task SendToConversationAsync(Guid conversationId, object message)
+        private async Task SendEventToConversationAsync(Guid conversationId, string eventType, object payload)
         {
             await Clients.Group(conversationId.ToString())
-                .SendAsync("ReceiveEvent", message);
+                .SendAsync("ReceiveEvent", eventType, payload);
         }
 
         /// <summary>
         /// Отправить событие всем участникам беседы, кроме отправителя
         /// </summary>
-        private async Task SendToConversationExceptSenderAsync(Guid conversationId, object message, Guid senderId)
+        private async Task SendEventToConversationExceptSenderAsync(Guid conversationId, string eventType, object payload)
         {
             await Clients.GroupExcept(conversationId.ToString(), new[] { Context.ConnectionId })
-                .SendAsync("ReceiveEvent", message);
+                .SendAsync("ReceiveEvent", eventType, payload);
         }
 
         /// <summary>
@@ -244,7 +247,9 @@ namespace MessengerServer.Hubs
         {
             try
             {
-                var userIdClaim = Context.User?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
+                var userIdClaim = Context.User?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)
+                    ?? Context.User?.FindFirst("sub")
+                    ?? Context.User?.FindFirst("userId");
                 if (userIdClaim != null && Guid.TryParse(userIdClaim.Value, out var userId))
                 {
                     return userId;

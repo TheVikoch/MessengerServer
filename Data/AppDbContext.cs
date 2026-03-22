@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using MessengerServer.Models;
 
 namespace MessengerServer.Data;
@@ -23,9 +23,11 @@ public class AppDbContext : DbContext
             entity.ToTable("Users");
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Email).IsRequired();
+            entity.Property(e => e.DisplayName).HasMaxLength(64);
             entity.Property(e => e.PasswordHash).IsRequired();
             entity.Property(e => e.PasswordSalt).IsRequired();
             entity.HasIndex(e => e.Email).IsUnique();
+            entity.HasIndex(e => e.DisplayName).IsUnique();
         });
 
         modelBuilder.Entity<Conversation>(entity =>
@@ -74,3 +76,4 @@ public class AppDbContext : DbContext
         });
     }
 }
+

@@ -1,4 +1,4 @@
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 
 namespace MessengerServer.Models.DTOs;
 
@@ -11,4 +11,7 @@ public class RegisterDto
     [Required]
     [MinLength(6)]
     public string Password { get; set; } = string.Empty;
+
+    [Required]
+    public string DisplayName { get; set; } = string.Empty;
 }

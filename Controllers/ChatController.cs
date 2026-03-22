@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -30,7 +30,12 @@ namespace MessengerServer.Controllers
             try
             {
                 var userId = GetCurrentUserId();
-                var result = await _chatService.CreatePersonalChatAsync(userId, createPersonalChatDto.UserEmail);
+                if (string.IsNullOrWhiteSpace(createPersonalChatDto.UserEmail) && string.IsNullOrWhiteSpace(createPersonalChatDto.UserDisplayName))
+                {
+                    return BadRequest(new { message = "Укажите email или имя пользователя" });
+                }
+
+                var result = await _chatService.CreatePersonalChatAsync(userId, createPersonalChatDto.UserEmail, createPersonalChatDto.UserDisplayName);
                 return Ok(result);
             }
             catch (KeyNotFoundException ex)
@@ -195,3 +200,5 @@ namespace MessengerServer.Controllers
         }
     }
 }
+
+

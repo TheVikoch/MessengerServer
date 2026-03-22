@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using MessengerServer.Models.DTOs;
@@ -7,7 +7,7 @@ namespace MessengerServer.Services.chat
 {
     public interface IChatService
     {
-        Task<ConversationDto> CreatePersonalChatAsync(Guid currentUserId, string userEmail);
+        Task<ConversationDto> CreatePersonalChatAsync(Guid currentUserId, string? userEmail, string? userDisplayName);
         Task<ConversationDto> CreateGroupChatAsync(Guid currentUserId, CreateGroupChatDto createGroupChatDto);
         Task<ConversationDto> GetConversationAsync(Guid userId, Guid conversationId);
         Task<List<ConversationDto>> GetConversationsForUserAsync(Guid userId);

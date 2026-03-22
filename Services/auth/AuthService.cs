@@ -1,8 +1,9 @@
-using System.IdentityModel.Tokens.Jwt;
+﻿using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using MessengerServer.Data;
+using MessengerServer;
 using MessengerServer.Models;
 using MessengerServer.Models.DTOs;
 using Microsoft.IdentityModel.Tokens;
@@ -32,6 +33,17 @@ public class AuthService : IAuthService
             throw new UserAlreadyExistsException(registerDto.Email);
         }
 
+        var displayName = registerDto.DisplayName?.Trim();
+        if (string.IsNullOrWhiteSpace(displayName))
+        {
+            throw new ArgumentException("Display name is required");
+        }
+
+        if (await _context.Users.AnyAsync(u => u.DisplayName == displayName))
+        {
+            throw new DisplayNameAlreadyExistsException(displayName);
+        }
+
         var salt = RandomNumberGenerator.GetBytes(128 / 8);
         using var pbkdf2 = new Rfc2898DeriveBytes(registerDto.Password, salt, 10000, HashAlgorithmName.SHA256);
         var passwordHash = Convert.ToBase64String(pbkdf2.GetBytes(256 / 8));
@@ -40,6 +52,7 @@ public class AuthService : IAuthService
         {
             Id = Guid.NewGuid(),
             Email = encryptedEmail,
+            DisplayName = displayName,
             PasswordHash = passwordHash,
             PasswordSalt = Convert.ToBase64String(salt),
             CreatedAt = DateTime.UtcNow
@@ -73,6 +86,7 @@ public class AuthService : IAuthService
             Token = token,
             Expires = DateTime.UtcNow.AddDays(7),
             Email = registerDto.Email,
+            DisplayName = displayName,
             UserId = user.Id,
             RefreshToken = refreshToken,
             SessionId = session.Id
@@ -116,6 +130,7 @@ public class AuthService : IAuthService
                 Token = token,
                 Expires = DateTime.UtcNow.AddDays(7),
                 Email = loginDto.Email,
+                DisplayName = user.DisplayName ?? string.Empty,
                 UserId = user.Id,
                 RefreshToken = existingSession.RefreshToken,
                 SessionId = existingSession.Id
@@ -142,6 +157,7 @@ public class AuthService : IAuthService
                 Token = token,
                 Expires = DateTime.UtcNow.AddDays(7),
                 Email = loginDto.Email,
+                DisplayName = user.DisplayName ?? string.Empty,
                 UserId = user.Id,
                 RefreshToken = revokedSession.RefreshToken,
                 SessionId = revokedSession.Id
@@ -172,6 +188,7 @@ public class AuthService : IAuthService
             Token = tokenNew,
             Expires = DateTime.UtcNow.AddDays(7),
             Email = loginDto.Email,
+                DisplayName = user.DisplayName ?? string.Empty,
             UserId = user.Id,
             RefreshToken = refreshToken,
             SessionId = session.Id
@@ -265,3 +282,5 @@ public class AuthService : IAuthService
         return Convert.ToBase64String(randomBytes);
     }
 }
+
+

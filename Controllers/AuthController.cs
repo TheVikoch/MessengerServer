@@ -1,3 +1,4 @@
+п»їusing MessengerServer;
 using MessengerServer.Models.DTOs;
 using MessengerServer.Services.auth;
 using Microsoft.AspNetCore.Mvc;
@@ -18,28 +19,42 @@ public class AuthController : ControllerBase
     [HttpPost("register")]
     public async Task<IActionResult> Register(RegisterDto registerDto)
     {
-        // это походу вообще никогда не будет работать
+        // СЌС‚Рѕ РїРѕС…РѕРґСѓ РІРѕРѕР±С‰Рµ РЅРёРєРѕРіРґР° РЅРµ Р±СѓРґРµС‚ СЂР°Р±РѕС‚Р°С‚СЊ
         if (!ModelState.IsValid)
         {
             return BadRequest(ModelState);
         }
 
-        var result = await _authService.RegisterAsync(registerDto);
-        
-        return Ok(result);
+        try
+        {
+            var result = await _authService.RegisterAsync(registerDto);
+            return Ok(result);
+        }
+        catch (UserAlreadyExistsException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (DisplayNameAlreadyExistsException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpPost("login")]
     public async Task<IActionResult> Login(LoginDto loginDto)
     {
-        // это походу вообще никогда не будет работать
+        // СЌС‚Рѕ РїРѕС…РѕРґСѓ РІРѕРѕР±С‰Рµ РЅРёРєРѕРіРґР° РЅРµ Р±СѓРґРµС‚ СЂР°Р±РѕС‚Р°С‚СЊ
         if (!ModelState.IsValid)
         {
             return BadRequest(ModelState);
         }
 
         var result = await _authService.LoginAsync(loginDto);
-        
+
         return Ok(result);
     }
 

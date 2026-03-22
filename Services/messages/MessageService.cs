@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -69,7 +69,7 @@ namespace MessengerServer.Services.messages
                 await _context.SaveChangesAsync();
             }
 
-            // Получаем DTO для сообщения
+            // РџРѕР»СѓС‡Р°РµРј DTO РґР»СЏ СЃРѕРѕР±С‰РµРЅРёСЏ
             var resultDto = await GetMessageDtoAsync(message);
             
             return resultDto;
@@ -193,7 +193,8 @@ namespace MessengerServer.Services.messages
                 .Select(u => new UserDto
                 {
                     Id = u.Id,
-                    Email = u.Email // This is encrypted in DB
+                    Email = u.Email, // This is encrypted in DB
+                    DisplayName = u.DisplayName ?? string.Empty
                 })
                 .FirstOrDefaultAsync();
 
@@ -211,3 +212,4 @@ namespace MessengerServer.Services.messages
         }
     }
 }
+
