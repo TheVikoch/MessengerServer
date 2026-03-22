@@ -10,6 +10,7 @@ namespace MessengerServer.Models.DTOs
         public string? Name { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime? LastMessageAt { get; set; }
+        public string? LastMessageContent { get; set; }
         public bool IsDeleted { get; set; }
         public List<ConversationMemberDto> Members { get; set; } = new List<ConversationMemberDto>();
     }

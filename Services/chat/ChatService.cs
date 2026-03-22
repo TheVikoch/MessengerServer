@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using MongoDB.Driver;
 using MessengerServer.Data;
 using MessengerServer.Models;
 using MessengerServer.Models.DTOs;
@@ -14,11 +16,21 @@ namespace MessengerServer.Services.chat
     {
         private readonly AppDbContext _context;
         private readonly IEncryptionService _encryptionService;
+        private readonly IMongoCollection<Message> _messages;
 
-        public ChatService(AppDbContext context, IEncryptionService encryptionService)
+        public ChatService(AppDbContext context, IEncryptionService encryptionService, IConfiguration configuration)
         {
             _context = context;
             _encryptionService = encryptionService;
+
+            var mongoConnectionString = configuration.GetConnectionString("MongoDb")
+                ?? configuration["MongoDb:ConnectionString"]
+                ?? "mongodb://localhost:27017/MessengerDB";
+
+            var mongoUrl = new MongoUrl(mongoConnectionString);
+            var client = new MongoClient(mongoUrl);
+            var database = client.GetDatabase(mongoUrl.DatabaseName ?? "MessengerDB");
+            _messages = database.GetCollection<Message>("Messages");
         }
 
         public async Task<ConversationDto> CreatePersonalChatAsync(Guid currentUserId, string? userEmail, string? userDisplayName)
@@ -363,6 +375,22 @@ namespace MessengerServer.Services.chat
 
             if (conversation == null)
                 throw new KeyNotFoundException("Conversation not found");
+
+            var lastMessage = await _messages.Find(m => m.ConversationId == conversationId && !m.IsDeleted)
+                .SortByDescending(m => m.SentAt)
+                .FirstOrDefaultAsync();
+
+            if (lastMessage != null)
+            {
+                try
+                {
+                    conversation.LastMessageContent = _encryptionService.Decrypt(lastMessage.EncryptedContent);
+                }
+                catch
+                {
+                    conversation.LastMessageContent = null;
+                }
+            }
 
             return conversation;
         }
