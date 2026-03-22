@@ -39,7 +39,7 @@ public class AuthService : IAuthService
             throw new ArgumentException("Display name is required");
         }
 
-        if (await _context.Users.AnyAsync(u => u.DisplayName == displayName))
+        if (await _context.Users.AnyAsync(u => u.DisplayName != null && EF.Functions.ILike(u.DisplayName, displayName)))
         {
             throw new DisplayNameAlreadyExistsException(displayName);
         }

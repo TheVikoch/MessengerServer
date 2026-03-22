@@ -25,19 +25,23 @@ namespace MessengerServer.Services.chat
         {
             User? targetUser = null;
 
-            if (!string.IsNullOrWhiteSpace(userEmail))
+            var trimmedEmail = userEmail?.Trim();
+            var trimmedDisplayName = userDisplayName?.Trim();
+
+            if (!string.IsNullOrWhiteSpace(trimmedEmail))
             {
-                var encryptedEmail = _encryptionService.Encrypt(userEmail);
+                var encryptedEmail = _encryptionService.Encrypt(trimmedEmail);
                 targetUser = await _context.Users.FirstOrDefaultAsync(u => u.Email == encryptedEmail);
             }
-            else if (!string.IsNullOrWhiteSpace(userDisplayName))
+            else if (!string.IsNullOrWhiteSpace(trimmedDisplayName))
             {
-                targetUser = await _context.Users.FirstOrDefaultAsync(u => u.DisplayName == userDisplayName);
+                targetUser = await _context.Users.FirstOrDefaultAsync(u =>
+                    u.DisplayName != null && EF.Functions.ILike(u.DisplayName, trimmedDisplayName));
             }
 
             if (targetUser == null)
             {
-                var identifier = userEmail ?? userDisplayName ?? string.Empty;
+                var identifier = trimmedEmail ?? trimmedDisplayName ?? string.Empty;
                 throw new KeyNotFoundException($"User with identifier {identifier} not found");
             }
 
@@ -205,7 +209,7 @@ namespace MessengerServer.Services.chat
             return result;
         }
 
-        public async Task<ConversationDto> AddMemberAsync(Guid currentUserId, Guid conversationId, string userEmail)
+        public async Task<ConversationDto> AddMemberAsync(Guid currentUserId, Guid conversationId, string? userEmail, string? userDisplayName)
         {
             // Get conversation
             var conversation = await _context.Conversations
@@ -236,13 +240,30 @@ namespace MessengerServer.Services.chat
                 throw new UnauthorizedAccessException("Only creator or admin can add members");
             }
 
+            var trimmedEmail = userEmail?.Trim();
+            var trimmedDisplayName = userDisplayName?.Trim();
+            if (string.IsNullOrWhiteSpace(trimmedEmail) && string.IsNullOrWhiteSpace(trimmedDisplayName))
+            {
+                throw new ArgumentException("User email or display name is required");
+            }
+
             // Find the user to add
-            var encryptedEmail = _encryptionService.Encrypt(userEmail);
-            var userToAdd = await _context.Users.FirstOrDefaultAsync(u => u.Email == encryptedEmail);
-            
+            User? userToAdd = null;
+            if (!string.IsNullOrWhiteSpace(trimmedEmail))
+            {
+                var encryptedEmail = _encryptionService.Encrypt(trimmedEmail);
+                userToAdd = await _context.Users.FirstOrDefaultAsync(u => u.Email == encryptedEmail);
+            }
+            else if (!string.IsNullOrWhiteSpace(trimmedDisplayName))
+            {
+                userToAdd = await _context.Users.FirstOrDefaultAsync(u =>
+                    u.DisplayName != null && EF.Functions.ILike(u.DisplayName, trimmedDisplayName));
+            }
+
             if (userToAdd == null)
             {
-                throw new KeyNotFoundException($"User with email {userEmail} not found");
+                var identifier = trimmedEmail ?? trimmedDisplayName ?? string.Empty;
+                throw new KeyNotFoundException($"User with identifier {identifier} not found");
             }
 
             // Check if user is already a member

@@ -5,8 +5,9 @@ namespace MessengerServer.Models.DTOs
 {
     public class AddMemberDto
     {
-        [Required]
         [EmailAddress]
-        public string UserEmail { get; set; } = string.Empty;
+        public string? UserEmail { get; set; }
+
+        public string? UserDisplayName { get; set; }
     }
 }

@@ -131,7 +131,12 @@ namespace MessengerServer.Controllers
             try
             {
                 var userId = GetCurrentUserId();
-                var result = await _chatService.AddMemberAsync(userId, conversationId, addMemberDto.UserEmail);
+                if (string.IsNullOrWhiteSpace(addMemberDto.UserEmail) && string.IsNullOrWhiteSpace(addMemberDto.UserDisplayName))
+                {
+                    return BadRequest(new { message = "Укажите email или имя пользователя" });
+                }
+
+                var result = await _chatService.AddMemberAsync(userId, conversationId, addMemberDto.UserEmail, addMemberDto.UserDisplayName);
                 return Ok(result);
             }
             catch (KeyNotFoundException ex)

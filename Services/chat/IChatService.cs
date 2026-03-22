@@ -11,7 +11,7 @@ namespace MessengerServer.Services.chat
         Task<ConversationDto> CreateGroupChatAsync(Guid currentUserId, CreateGroupChatDto createGroupChatDto);
         Task<ConversationDto> GetConversationAsync(Guid userId, Guid conversationId);
         Task<List<ConversationDto>> GetConversationsForUserAsync(Guid userId);
-        Task<ConversationDto> AddMemberAsync(Guid currentUserId, Guid conversationId, string userEmail);
+        Task<ConversationDto> AddMemberAsync(Guid currentUserId, Guid conversationId, string? userEmail, string? userDisplayName);
         Task RemoveMemberAsync(Guid currentUserId, Guid conversationId, Guid userIdToRemove);
     }
 }
