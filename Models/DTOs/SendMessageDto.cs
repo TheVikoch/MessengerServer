@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 
 namespace MessengerServer.Models.DTOs
@@ -8,9 +9,10 @@ namespace MessengerServer.Models.DTOs
         [Required]
         public Guid ConversationId { get; set; }
         
-        [Required]
         public string Content { get; set; } = string.Empty;
         
         public string? ReplyToMessageId { get; set; }
+        
+        public List<string> AttachmentIds { get; set; } = new();
     }
 }

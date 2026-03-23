@@ -5,6 +5,7 @@ using MessengerServer.Middlewares;
 using System.Threading.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using MessengerServer.Data;
+using MessengerServer.Services.storage;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -21,9 +22,13 @@ builder.Services.AddControllers()
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("PostgreSQL") ?? builder.Configuration.GetConnectionString("DefaultConnection") ?? "Host=localhost;Port=5432;Database=MessengerDB;Username=postgres;Password=postgres"));
 
+builder.Services.Configure<S3Options>(builder.Configuration.GetSection("S3"));
+
 builder.Services.AddScoped<MessengerServer.Services.auth.IAuthService, MessengerServer.Services.auth.AuthService>();
 builder.Services.AddScoped<MessengerServer.Services.encryption.IEncryptionService, MessengerServer.Services.encryption.EncryptionService>();
 builder.Services.AddScoped<MessengerServer.Services.chat.IChatService, MessengerServer.Services.chat.ChatService>();
+builder.Services.AddScoped<MessengerServer.Services.storage.IStorageService, MessengerServer.Services.storage.S3StorageService>();
+builder.Services.AddScoped<MessengerServer.Services.media.IMediaService, MessengerServer.Services.media.MediaService>();
 
 // Register MessageService (core implementation)
 builder.Services.AddScoped<MessengerServer.Services.messages.IMessageService, MessengerServer.Services.messages.MessageService>();

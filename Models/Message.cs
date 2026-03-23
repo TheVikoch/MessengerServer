@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace MessengerServer.Models
 {
@@ -13,5 +14,7 @@ namespace MessengerServer.Models
         
         // Optional: for reply chain
         public string? ReplyToMessageId { get; set; }
+
+        public List<MessageAttachment> Attachments { get; set; } = new();
     }
 }

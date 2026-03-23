@@ -25,7 +25,7 @@ namespace MessengerServer.Controllers
         /// <summary>
         /// Send a message to a conversation
         /// </summary>
-        /// <param name="sendMessageDto">Message data (conversationId, content, optional replyToMessageId)</param>
+        /// <param name="sendMessageDto">Message data (conversationId, content optional, attachmentIds optional)</param>
         /// <returns>The sent message with decrypted content</returns>
         [HttpPost]
         public async Task<IActionResult> SendMessage([FromBody] SendMessageDto sendMessageDto)
@@ -33,6 +33,11 @@ namespace MessengerServer.Controllers
             try
             {
                 var userId = GetCurrentUserId();
+                if (IsEmptyMessage(sendMessageDto))
+                {
+                    return BadRequest(new { message = "Message content or attachments are required" });
+                }
+
                 var result = await _messageService.SendMessageAsync(userId, sendMessageDto);
                 
                 // Отправляем WebSocket уведомление всем участникам беседы
@@ -149,6 +154,11 @@ namespace MessengerServer.Controllers
             }
 
             return userId;
+        }
+
+        private static bool IsEmptyMessage(SendMessageDto dto)
+        {
+            return string.IsNullOrWhiteSpace(dto.Content) && (dto.AttachmentIds == null || dto.AttachmentIds.Count == 0);
         }
     }
 }

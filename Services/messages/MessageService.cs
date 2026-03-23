@@ -14,6 +14,7 @@ namespace MessengerServer.Services.messages
     public class MessageService : IMessageService
     {
         private readonly IMongoCollection<Message> _messages;
+        private readonly IMongoCollection<MediaUpload> _uploads;
         private readonly AppDbContext _context;
         private readonly IEncryptionService _encryptionService;
     
@@ -27,6 +28,7 @@ namespace MessengerServer.Services.messages
             var client = new MongoClient(mongoUrl);
             var database = client.GetDatabase(mongoUrl.DatabaseName ?? "MessengerDB");
             _messages = database.GetCollection<Message>("Messages");
+            _uploads = database.GetCollection<MediaUpload>("MediaUploads");
             
             _context = context;
             _encryptionService = encryptionService;
@@ -43,6 +45,51 @@ namespace MessengerServer.Services.messages
                 throw new UnauthorizedAccessException("You are not a member of this conversation");
             }
 
+            if (string.IsNullOrWhiteSpace(sendMessageDto.Content) &&
+                (sendMessageDto.AttachmentIds == null || sendMessageDto.AttachmentIds.Count == 0))
+            {
+                throw new ArgumentException("Message content or attachments are required");
+            }
+
+            var attachments = new List<MessageAttachment>();
+            var attachmentIds = sendMessageDto.AttachmentIds?
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Distinct()
+                .ToList() ?? new List<string>();
+
+            if (attachmentIds.Count > 0)
+            {
+                var uploads = await _uploads.Find(u => attachmentIds.Contains(u.Id)).ToListAsync();
+
+                if (uploads.Count != attachmentIds.Count)
+                {
+                    throw new KeyNotFoundException("One or more uploads not found");
+                }
+
+                if (uploads.Any(u => u.ConversationId != sendMessageDto.ConversationId || u.UserId != senderId))
+                {
+                    throw new UnauthorizedAccessException("Upload does not belong to this user or conversation");
+                }
+
+                if (uploads.Any(u => !string.Equals(u.Status, "Ready", StringComparison.OrdinalIgnoreCase)))
+                {
+                    throw new InvalidOperationException("One or more uploads are not ready");
+                }
+
+                var uploadsById = uploads.ToDictionary(u => u.Id, u => u);
+                attachments = attachmentIds.Select(id => uploadsById[id]).Select(u => new MessageAttachment
+                {
+                    Id = u.Id,
+                    ObjectKey = u.ObjectKey,
+                    FileName = u.FileName,
+                    ContentType = u.ContentType,
+                    Size = u.Size,
+                    Status = "Ready",
+                    CreatedAt = u.CreatedAt,
+                    Encryption = u.Encryption
+                }).ToList();
+            }
+
             // Encrypt the message content
             var encryptedContent = _encryptionService.Encrypt(sendMessageDto.Content);
 
@@ -54,10 +101,16 @@ namespace MessengerServer.Services.messages
                 EncryptedContent = encryptedContent,
                 SentAt = DateTime.UtcNow,
                 IsDeleted = false,
-                ReplyToMessageId = sendMessageDto.ReplyToMessageId
+                ReplyToMessageId = sendMessageDto.ReplyToMessageId,
+                Attachments = attachments
             };
 
             await _messages.InsertOneAsync(message);
+
+            if (attachmentIds.Count > 0)
+            {
+                await _uploads.DeleteManyAsync(u => attachmentIds.Contains(u.Id));
+            }
 
             // Update conversation's LastMessageAt
             var conversation = await _context.Conversations
@@ -207,7 +260,25 @@ namespace MessengerServer.Services.messages
                 Content = decryptedContent,
                 SentAt = message.SentAt,
                 IsDeleted = message.IsDeleted,
-                ReplyToMessageId = message.ReplyToMessageId
+                ReplyToMessageId = message.ReplyToMessageId,
+                Attachments = message.Attachments.Select(a => new MessageAttachmentDto
+                {
+                    Id = a.Id,
+                    FileName = a.FileName,
+                    ContentType = a.ContentType,
+                    Size = a.Size,
+                    Status = a.Status,
+                    CreatedAt = a.CreatedAt,
+                    Encryption = a.Encryption == null
+                        ? null
+                        : new MediaEncryptionMetadataDto
+                        {
+                            Algorithm = a.Encryption.Algorithm,
+                            KeyId = a.Encryption.KeyId,
+                            IvBase64 = a.Encryption.IvBase64,
+                            Version = a.Encryption.Version
+                        }
+                }).ToList()
             };
         }
     }

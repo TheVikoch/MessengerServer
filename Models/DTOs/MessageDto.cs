@@ -12,5 +12,6 @@ namespace MessengerServer.Models.DTOs
         public DateTime SentAt { get; set; }
         public bool IsDeleted { get; set; }
         public string? ReplyToMessageId { get; set; }
+        public List<MessageAttachmentDto> Attachments { get; set; } = new();
     }
 }
