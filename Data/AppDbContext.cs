@@ -13,6 +13,7 @@ public class AppDbContext : DbContext
     public DbSet<Session> Sessions { get; set; } = null!;
     public DbSet<Conversation> Conversations { get; set; } = null!;
     public DbSet<ConversationMember> ConversationMembers { get; set; } = null!;
+    public DbSet<StreamChatInvite> StreamChatInvites { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -73,6 +74,23 @@ public class AppDbContext : DbContext
                 .WithMany(u => u.Sessions)
                 .HasForeignKey(e => e.UserId)
                 .OnDelete(Microsoft.EntityFrameworkCore.DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<StreamChatInvite>(entity =>
+        {
+            entity.ToTable("StreamChatInvites");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.CreatorId).IsRequired();
+            entity.Property(e => e.TargetUserId).IsRequired();
+            entity.Property(e => e.PersonalChatId).IsRequired();
+            entity.Property(e => e.Token).IsRequired().HasMaxLength(256);
+            entity.Property(e => e.Status).IsRequired().HasMaxLength(32);
+            entity.Property(e => e.StreamChatName).HasMaxLength(256);
+            entity.Property(e => e.CreatedAt).IsRequired();
+            entity.Property(e => e.ExpiresAt).IsRequired();
+
+            entity.HasIndex(e => e.Token).IsUnique();
+            entity.HasIndex(e => new { e.PersonalChatId, e.Status });
         });
     }
 }

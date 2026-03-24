@@ -102,6 +102,8 @@ namespace MessengerServer.Services.messages
                 SentAt = DateTime.UtcNow,
                 IsDeleted = false,
                 ReplyToMessageId = sendMessageDto.ReplyToMessageId,
+                Kind = "text",
+                MetadataJson = null,
                 Attachments = attachments
             };
 
@@ -126,6 +128,56 @@ namespace MessengerServer.Services.messages
             var resultDto = await GetMessageDtoAsync(message);
             
             return resultDto;
+        }
+
+        public async Task<MessageDto> SendSystemMessageAsync(Guid senderId, Guid conversationId, string kind, string content, string? metadataJson)
+        {
+            if (string.IsNullOrWhiteSpace(kind))
+            {
+                throw new ArgumentException("Message kind is required");
+            }
+
+            if (string.IsNullOrWhiteSpace(content) && string.IsNullOrWhiteSpace(metadataJson))
+            {
+                throw new ArgumentException("Message content or metadata is required");
+            }
+
+            var isMember = await _context.ConversationMembers
+                .AnyAsync(cm => cm.ConversationId == conversationId && cm.UserId == senderId);
+
+            if (!isMember)
+            {
+                throw new UnauthorizedAccessException("You are not a member of this conversation");
+            }
+
+            var encryptedContent = _encryptionService.Encrypt(content ?? string.Empty);
+
+            var message = new Message
+            {
+                Id = Guid.NewGuid().ToString(),
+                ConversationId = conversationId,
+                SenderId = senderId,
+                EncryptedContent = encryptedContent,
+                SentAt = DateTime.UtcNow,
+                IsDeleted = false,
+                ReplyToMessageId = null,
+                Kind = kind,
+                MetadataJson = metadataJson,
+                Attachments = new List<MessageAttachment>()
+            };
+
+            await _messages.InsertOneAsync(message);
+
+            var conversation = await _context.Conversations
+                .FirstOrDefaultAsync(c => c.Id == conversationId);
+
+            if (conversation != null)
+            {
+                conversation.LastMessageAt = DateTime.UtcNow;
+                await _context.SaveChangesAsync();
+            }
+
+            return await GetMessageDtoAsync(message);
         }
 
         public async Task<MessagesResponseDto> GetMessagesAsync(Guid userId, Guid conversationId, int limit = 50, string? cursor = null)
@@ -258,6 +310,8 @@ namespace MessengerServer.Services.messages
                 SenderId = message.SenderId,
                 Sender = sender,
                 Content = decryptedContent,
+                Kind = message.Kind,
+                MetadataJson = message.MetadataJson,
                 SentAt = message.SentAt,
                 IsDeleted = message.IsDeleted,
                 ReplyToMessageId = message.ReplyToMessageId,

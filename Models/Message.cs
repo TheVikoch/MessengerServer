@@ -15,6 +15,12 @@ namespace MessengerServer.Models
         // Optional: for reply chain
         public string? ReplyToMessageId { get; set; }
 
+        // Message type marker (e.g. "text", "stream_report")
+        public string Kind { get; set; } = "text";
+
+        // Optional structured metadata for system/technical messages
+        public string? MetadataJson { get; set; }
+
         public List<MessageAttachment> Attachments { get; set; } = new();
     }
 }

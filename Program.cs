@@ -29,6 +29,14 @@ builder.Services.AddScoped<MessengerServer.Services.encryption.IEncryptionServic
 builder.Services.AddScoped<MessengerServer.Services.chat.IChatService, MessengerServer.Services.chat.ChatService>();
 builder.Services.AddScoped<MessengerServer.Services.storage.IStorageService, MessengerServer.Services.storage.S3StorageService>();
 builder.Services.AddScoped<MessengerServer.Services.media.IMediaService, MessengerServer.Services.media.MediaService>();
+builder.Services.AddScoped<MessengerServer.Services.stream.IStreamInviteService, MessengerServer.Services.stream.StreamInviteService>();
+builder.Services.Configure<MessengerServer.Services.stream.StreamTransferOptions>(
+    builder.Configuration.GetSection("StreamTransfer"));
+builder.Services.AddSingleton<MessengerServer.Services.stream.StreamTransferService>();
+builder.Services.AddSingleton<MessengerServer.Services.stream.IStreamTransferService>(sp =>
+    sp.GetRequiredService<MessengerServer.Services.stream.StreamTransferService>());
+builder.Services.AddHostedService(sp =>
+    sp.GetRequiredService<MessengerServer.Services.stream.StreamTransferService>());
 
 // Register MessageService (core implementation)
 builder.Services.AddScoped<MessengerServer.Services.messages.IMessageService, MessengerServer.Services.messages.MessageService>();
