@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using MessengerServer.Middlewares;
@@ -12,10 +12,10 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers()
     .ConfigureApiBehaviorOptions(options =>
     {
-        // Отключает автоматический возврат 400 при невалидном ModelState
+        // РћС‚РєР»СЋС‡Р°РµС‚ Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРёР№ РІРѕР·РІСЂР°С‚ 400 РїСЂРё РЅРµРІР°Р»РёРґРЅРѕРј ModelState
         options.SuppressModelStateInvalidFilter = true;
 
-        // Отключает автоматическое маппинг клиентских ошибок
+        // РћС‚РєР»СЋС‡Р°РµС‚ Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРѕРµ РјР°РїРїРёРЅРі РєР»РёРµРЅС‚СЃРєРёС… РѕС€РёР±РѕРє
         options.SuppressMapClientErrors = true;
     });
 
@@ -45,7 +45,13 @@ builder.Services.AddScoped<MessengerServer.Services.messages.IMessageService, Me
 builder.Services.AddScoped<MessengerServer.Services.websocket.IWebSocketNotifier, MessengerServer.Services.websocket.WebSocketNotifier>();
 
 // Add SignalR
-builder.Services.AddSignalR();
+builder.Services.AddSignalR(options =>
+{
+    options.MaximumReceiveMessageSize = 16 * 1024 * 1024;
+    options.ClientTimeoutInterval = TimeSpan.FromSeconds(120);
+    options.KeepAliveInterval = TimeSpan.FromSeconds(10);
+    options.HandshakeTimeout = TimeSpan.FromSeconds(30);
+});
 
 var jwtSettings = builder.Configuration.GetSection("Jwt");
 var key = Encoding.UTF8.GetBytes(jwtSettings["Key"] ?? "default_secret_key_change_in_production");
@@ -119,9 +125,9 @@ builder.Services.AddRateLimiter(options =>
             factory: partition => new FixedWindowRateLimiterOptions
             {
                 AutoReplenishment = true,
-                PermitLimit = 100, // запросов в минуту (window)
-                QueueLimit = 0, // запросов в очереди если >PermitLimit
-                Window = TimeSpan.FromMinutes(1) // окно за которое считается лимит
+                PermitLimit = 100, // Р·Р°РїСЂРѕСЃРѕРІ РІ РјРёРЅСѓС‚Сѓ (window)
+                QueueLimit = 0, // Р·Р°РїСЂРѕСЃРѕРІ РІ РѕС‡РµСЂРµРґРё РµСЃР»Рё >PermitLimit
+                Window = TimeSpan.FromMinutes(1) // РѕРєРЅРѕ Р·Р° РєРѕС‚РѕСЂРѕРµ СЃС‡РёС‚Р°РµС‚СЃСЏ Р»РёРјРёС‚
             }));
     
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -135,7 +141,7 @@ app.UseMiddleware<ExceptionHandlingMiddleware>();
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    // Используем миграции для создания/обновления схемы БД.
+    // РСЃРїРѕР»СЊР·СѓРµРј РјРёРіСЂР°С†РёРё РґР»СЏ СЃРѕР·РґР°РЅРёСЏ/РѕР±РЅРѕРІР»РµРЅРёСЏ СЃС…РµРјС‹ Р‘Р”.
     db.Database.Migrate();
 }
 
@@ -152,3 +158,4 @@ app.MapControllers();
 app.MapHub<MessengerServer.Hubs.MessengerHub>("/messengerHub");
 
 app.Run();
+

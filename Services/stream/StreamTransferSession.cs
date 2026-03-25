@@ -78,7 +78,7 @@ namespace MessengerServer.Services.stream
             CreatedAt = DateTime.UtcNow;
             LastActivityAt = CreatedAt;
             Cancellation = new CancellationTokenSource();
-            Channel = Channel.CreateBounded<StreamTransferChunkEnvelope>(new BoundedChannelOptions(windowSize)
+            Channel = System.Threading.Channels.Channel.CreateBounded<StreamTransferChunkEnvelope>(new BoundedChannelOptions(windowSize)
             {
                 SingleReader = true,
                 SingleWriter = false,
