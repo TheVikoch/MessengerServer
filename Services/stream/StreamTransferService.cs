@@ -43,6 +43,12 @@ namespace MessengerServer.Services.stream
             }
 
             session.RelayTask = Task.Run(() => RelayChunksAsync(session, session.Cancellation.Token));
+            for (var lane = 0; lane < session.ReceiverLaneCount; lane++)
+            {
+                var receiverLane = lane;
+                session.ReceiverRelayTasks[receiverLane] = Task.Run(
+                    () => RelayReceiverLaneAsync(session, receiverLane, session.Cancellation.Token));
+            }
             return session;
         }
 
@@ -110,7 +116,7 @@ namespace MessengerServer.Services.stream
             CancellationToken cancellationToken)
         {
             var session = GetSessionOrThrow(transferId);
-            ValidateLane(session, lane);
+            ValidateLane(session, role, lane);
             ValidateSocketParticipant(session, userId, role);
 
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(session.Cancellation.Token, cancellationToken);
@@ -250,9 +256,12 @@ namespace MessengerServer.Services.stream
             return session;
         }
 
-        private void ValidateLane(StreamTransferSession session, int lane)
+        private void ValidateLane(StreamTransferSession session, StreamTransferSocketRole role, int lane)
         {
-            if (lane < 0 || lane >= session.LaneCount)
+            var laneCount = role == StreamTransferSocketRole.Sender
+                ? session.SenderLaneCount
+                : session.ReceiverLaneCount;
+            if (lane < 0 || lane >= laneCount)
             {
                 throw new InvalidOperationException("Invalid transfer lane");
             }
@@ -325,12 +334,6 @@ namespace MessengerServer.Services.stream
                         break;
                     }
 
-                    var receiverSocket = await WaitForReceiverSocketAsync(session, lane, cancellationToken);
-                    if (receiverSocket == null)
-                    {
-                        throw new InvalidOperationException("Receiver socket unavailable");
-                    }
-
                     if (!messageBuffer.TryGetBuffer(out var payload))
                     {
                         payload = new ArraySegment<byte>(messageBuffer.ToArray());
@@ -342,6 +345,28 @@ namespace MessengerServer.Services.stream
                     }
 
                     session.LastActivityAt = DateTime.UtcNow;
+                    var receiverLane = GetReceiverLaneForBinaryFrame(session, payload);
+                    var payloadCopy = CopyPayload(payload);
+                    await session.ReceiverOutboundChannels[receiverLane].Writer.WriteAsync(payloadCopy, cancellationToken);
+                }
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
+            }
+        }
+
+        private async Task RelayReceiverLaneAsync(StreamTransferSession session, int lane, CancellationToken cancellationToken)
+        {
+            try
+            {
+                await foreach (var payload in session.ReceiverOutboundChannels[lane].Reader.ReadAllAsync(cancellationToken))
+                {
+                    var receiverSocket = await WaitForReceiverSocketAsync(session, lane, cancellationToken);
+                    if (receiverSocket == null)
+                    {
+                        throw new InvalidOperationException("Receiver socket unavailable");
+                    }
 
                     var sendLock = session.ReceiverSendLocks[lane];
                     await sendLock.WaitAsync(cancellationToken);
@@ -353,7 +378,7 @@ namespace MessengerServer.Services.stream
                         }
 
                         await receiverSocket.SendAsync(
-                            new ArraySegment<byte>(payload.Array, payload.Offset, payload.Count),
+                            new ArraySegment<byte>(payload),
                             WebSocketMessageType.Binary,
                             endOfMessage: true,
                             cancellationToken);
@@ -362,12 +387,45 @@ namespace MessengerServer.Services.stream
                     {
                         sendLock.Release();
                     }
+
+                    session.LastActivityAt = DateTime.UtcNow;
                 }
             }
-            finally
+            catch (OperationCanceledException)
             {
-                ArrayPool<byte>.Shared.Return(buffer);
+                // Normal cancellation during shutdown.
             }
+            catch
+            {
+                CloseSession(session, StreamTransferState.Failed);
+            }
+        }
+
+        private static int GetReceiverLaneForBinaryFrame(StreamTransferSession session, ArraySegment<byte> payload)
+        {
+            if (payload.Array == null || payload.Count < 5)
+            {
+                throw new InvalidOperationException("Binary payload is too small");
+            }
+
+            var baseOffset = payload.Offset;
+            var seq = ((payload.Array[baseOffset] & 0xFF) << 24) |
+                ((payload.Array[baseOffset + 1] & 0xFF) << 16) |
+                ((payload.Array[baseOffset + 2] & 0xFF) << 8) |
+                (payload.Array[baseOffset + 3] & 0xFF);
+            return Math.Abs(seq % Math.Max(1, session.ReceiverLaneCount));
+        }
+
+        private static byte[] CopyPayload(ArraySegment<byte> payload)
+        {
+            if (payload.Array == null)
+            {
+                throw new InvalidOperationException("Binary payload is missing");
+            }
+
+            var copy = new byte[payload.Count];
+            Buffer.BlockCopy(payload.Array, payload.Offset, copy, 0, payload.Count);
+            return copy;
         }
 
         private static int GetSocketRelayReadBufferSize(StreamTransferSession session)
@@ -485,17 +543,25 @@ namespace MessengerServer.Services.stream
             var receiverSockets = new List<WebSocket?>();
             lock (session.SocketSync)
             {
-                for (var lane = 0; lane < session.LaneCount; lane++)
+                for (var lane = 0; lane < session.SenderLaneCount; lane++)
                 {
                     senderSockets.Add(session.SenderSockets[lane]);
-                    receiverSockets.Add(session.ReceiverSockets[lane]);
                     session.SenderSockets[lane] = null;
+                }
+
+                for (var lane = 0; lane < session.ReceiverLaneCount; lane++)
+                {
+                    receiverSockets.Add(session.ReceiverSockets[lane]);
                     session.ReceiverSockets[lane] = null;
                 }
             }
 
             session.Cancellation.Cancel();
             session.Channel.Writer.TryComplete();
+            foreach (var outboundChannel in session.ReceiverOutboundChannels)
+            {
+                outboundChannel.Writer.TryComplete();
+            }
 
             _sessions.TryRemove(session.TransferId, out _);
             _activeByChat.TryRemove(session.StreamChatId, out _);

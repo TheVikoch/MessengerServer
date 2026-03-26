@@ -12,7 +12,8 @@ namespace MessengerServer.Models.DTOs
         public string FileHashAlgorithm { get; set; } = "SHA-256";
         public string ChunkHashAlgorithm { get; set; } = "CRC32";
         public int ChunkSize { get; set; }
-        public int LaneCount { get; set; } = 1;
+        public int SenderLaneCount { get; set; } = 1;
+        public int ReceiverLaneCount { get; set; } = 1;
         public int TotalChunks { get; set; }
         public string? ContentType { get; set; }
         public string? Caption { get; set; }
@@ -23,7 +24,8 @@ namespace MessengerServer.Models.DTOs
         public Guid TransferId { get; set; }
         public Guid StreamChatId { get; set; }
         public Guid ReceiverId { get; set; }
-        public int LaneCount { get; set; }
+        public int SenderLaneCount { get; set; }
+        public int ReceiverLaneCount { get; set; }
         public DateTime ExpiresAt { get; set; }
     }
 
@@ -38,7 +40,8 @@ namespace MessengerServer.Models.DTOs
         public string FileHashAlgorithm { get; set; } = "SHA-256";
         public string ChunkHashAlgorithm { get; set; } = "CRC32";
         public int ChunkSize { get; set; }
-        public int LaneCount { get; set; }
+        public int SenderLaneCount { get; set; }
+        public int ReceiverLaneCount { get; set; }
         public int TotalChunks { get; set; }
         public string? ContentType { get; set; }
         public string? Caption { get; set; }

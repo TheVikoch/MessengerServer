@@ -269,9 +269,14 @@ namespace MessengerServer.Hubs
                 throw new HubException($"Chunk size must be {options.ChunkSizeBytes} bytes");
             }
 
-            if (request.LaneCount <= 0 || request.LaneCount > options.MaxParallelSockets)
+            if (request.SenderLaneCount <= 0 || request.SenderLaneCount > options.MaxParallelSockets)
             {
-                throw new HubException($"Lane count must be between 1 and {options.MaxParallelSockets}");
+                throw new HubException($"SenderLaneCount must be between 1 and {options.MaxParallelSockets}");
+            }
+
+            if (request.ReceiverLaneCount <= 0 || request.ReceiverLaneCount > options.MaxParallelSockets)
+            {
+                throw new HubException($"ReceiverLaneCount must be between 1 and {options.MaxParallelSockets}");
             }
 
             var expectedChunks = (int)((request.FileSize + request.ChunkSize - 1L) / request.ChunkSize);
@@ -294,7 +299,8 @@ namespace MessengerServer.Hubs
                 request.FileHashAlgorithm,
                 request.ChunkHashAlgorithm,
                 request.ChunkSize,
-                request.LaneCount,
+                request.SenderLaneCount,
+                request.ReceiverLaneCount,
                 request.TotalChunks,
                 request.ContentType,
                 request.Caption,
@@ -313,7 +319,8 @@ namespace MessengerServer.Hubs
                 FileHashAlgorithm = session.FileHashAlgorithm,
                 ChunkHashAlgorithm = session.ChunkHashAlgorithm,
                 ChunkSize = session.ChunkSize,
-                LaneCount = session.LaneCount,
+                SenderLaneCount = session.SenderLaneCount,
+                ReceiverLaneCount = session.ReceiverLaneCount,
                 TotalChunks = session.TotalChunks,
                 ContentType = session.ContentType,
                 Caption = session.Caption
@@ -326,7 +333,8 @@ namespace MessengerServer.Hubs
                 TransferId = transferId,
                 StreamChatId = request.StreamChatId,
                 ReceiverId = receiverId,
-                LaneCount = session.LaneCount,
+                SenderLaneCount = session.SenderLaneCount,
+                ReceiverLaneCount = session.ReceiverLaneCount,
                 ExpiresAt = _streamTransferService.GetExpiryTime(session.LastActivityAt)
             };
         }
