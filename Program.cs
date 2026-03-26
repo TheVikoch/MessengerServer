@@ -1,10 +1,12 @@
-﻿using System.Text;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.IdentityModel.Tokens;
-using MessengerServer.Middlewares;
+using System.Net.WebSockets;
+using System.Security.Claims;
+using System.Text;
 using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
 using MessengerServer.Data;
+using MessengerServer.Middlewares;
 using MessengerServer.Services.storage;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -90,11 +92,11 @@ builder.Services.AddAuthentication(options =>
         OnTokenValidated = async context =>
         {
             var authService = context.HttpContext.RequestServices.GetRequiredService<MessengerServer.Services.auth.IAuthService>();
-            
+
             // Get sessionId from token claims
             var sessionIdClaim = context.Principal?.FindFirst("sessionId");
-            var userIdClaim = context.Principal?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
-            
+            var userIdClaim = context.Principal?.FindFirst(ClaimTypes.NameIdentifier);
+
             if (sessionIdClaim == null || userIdClaim == null)
             {
                 context.Fail("Session identifier missing from token");
@@ -129,10 +131,9 @@ builder.Services.AddRateLimiter(options =>
                 QueueLimit = 0, // Р·Р°РїСЂРѕСЃРѕРІ РІ РѕС‡РµСЂРµРґРё РµСЃР»Рё >PermitLimit
                 Window = TimeSpan.FromMinutes(1) // РѕРєРЅРѕ Р·Р° РєРѕС‚РѕСЂРѕРµ СЃС‡РёС‚Р°РµС‚СЃСЏ Р»РёРјРёС‚
             }));
-    
+
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 });
-
 
 var app = builder.Build();
 
@@ -151,11 +152,110 @@ app.UseHttpsRedirection(); // ?
 app.UseRouting();
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseWebSockets(new WebSocketOptions
+{
+    KeepAliveInterval = TimeSpan.FromSeconds(10)
+});
 
 app.MapControllers();
+
+app.Map("/stream-transfer/ws", async context =>
+{
+    if (!context.WebSockets.IsWebSocketRequest)
+    {
+        context.Response.StatusCode = StatusCodes.Status400BadRequest;
+        await context.Response.WriteAsync("WebSocket request expected");
+        return;
+    }
+
+    if (context.User?.Identity?.IsAuthenticated != true)
+    {
+        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+        return;
+    }
+
+    var transferIdRaw = context.Request.Query["transferId"].ToString();
+    var roleRaw = context.Request.Query["role"].ToString();
+    var laneRaw = context.Request.Query["lane"].ToString();
+    if (!Guid.TryParse(transferIdRaw, out var transferId) ||
+        !TryParseStreamTransferRole(roleRaw, out var role) ||
+        !int.TryParse(laneRaw, out var lane) ||
+        lane < 0)
+    {
+        context.Response.StatusCode = StatusCodes.Status400BadRequest;
+        await context.Response.WriteAsync("Invalid transfer websocket parameters");
+        return;
+    }
+
+    var userIdClaim = context.User.FindFirst(ClaimTypes.NameIdentifier)
+        ?? context.User.FindFirst("sub")
+        ?? context.User.FindFirst("userId");
+    if (userIdClaim == null || !Guid.TryParse(userIdClaim.Value, out var userId))
+    {
+        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+        return;
+    }
+
+    var transferService = context.RequestServices.GetRequiredService<MessengerServer.Services.stream.IStreamTransferService>();
+    using var socket = await context.WebSockets.AcceptWebSocketAsync();
+
+    try
+    {
+        await transferService.AttachSocketAsync(transferId, userId, role, lane, socket, context.RequestAborted);
+    }
+    catch (OperationCanceledException)
+    {
+        // Normal shutdown / client disconnect.
+    }
+    catch (KeyNotFoundException)
+    {
+        if (socket.State == WebSocketState.Open || socket.State == WebSocketState.CloseReceived)
+        {
+            await socket.CloseAsync(WebSocketCloseStatus.PolicyViolation, "transfer_not_found", CancellationToken.None);
+        }
+    }
+    catch (UnauthorizedAccessException)
+    {
+        if (socket.State == WebSocketState.Open || socket.State == WebSocketState.CloseReceived)
+        {
+            await socket.CloseAsync(WebSocketCloseStatus.PolicyViolation, "unauthorized", CancellationToken.None);
+        }
+    }
+    catch (InvalidOperationException ex)
+    {
+        if (socket.State == WebSocketState.Open || socket.State == WebSocketState.CloseReceived)
+        {
+            await socket.CloseAsync(WebSocketCloseStatus.PolicyViolation, ex.Message, CancellationToken.None);
+        }
+    }
+    catch (Exception)
+    {
+        if (socket.State == WebSocketState.Open || socket.State == WebSocketState.CloseReceived)
+        {
+            await socket.CloseAsync(WebSocketCloseStatus.InternalServerError, "stream_transfer_error", CancellationToken.None);
+        }
+    }
+});
 
 // Map SignalR Hub
 app.MapHub<MessengerServer.Hubs.MessengerHub>("/messengerHub");
 
 app.Run();
 
+static bool TryParseStreamTransferRole(string rawRole, out MessengerServer.Services.stream.StreamTransferSocketRole role)
+{
+    if (string.Equals(rawRole, "sender", StringComparison.OrdinalIgnoreCase))
+    {
+        role = MessengerServer.Services.stream.StreamTransferSocketRole.Sender;
+        return true;
+    }
+
+    if (string.Equals(rawRole, "receiver", StringComparison.OrdinalIgnoreCase))
+    {
+        role = MessengerServer.Services.stream.StreamTransferSocketRole.Receiver;
+        return true;
+    }
+
+    role = default;
+    return false;
+}

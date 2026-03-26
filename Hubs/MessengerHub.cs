@@ -269,6 +269,11 @@ namespace MessengerServer.Hubs
                 throw new HubException($"Chunk size must be {options.ChunkSizeBytes} bytes");
             }
 
+            if (request.LaneCount <= 0 || request.LaneCount > options.MaxParallelSockets)
+            {
+                throw new HubException($"Lane count must be between 1 and {options.MaxParallelSockets}");
+            }
+
             var expectedChunks = (int)((request.FileSize + request.ChunkSize - 1L) / request.ChunkSize);
             if (request.TotalChunks != expectedChunks)
             {
@@ -289,6 +294,7 @@ namespace MessengerServer.Hubs
                 request.FileHashAlgorithm,
                 request.ChunkHashAlgorithm,
                 request.ChunkSize,
+                request.LaneCount,
                 request.TotalChunks,
                 request.ContentType,
                 request.Caption,
@@ -307,6 +313,7 @@ namespace MessengerServer.Hubs
                 FileHashAlgorithm = session.FileHashAlgorithm,
                 ChunkHashAlgorithm = session.ChunkHashAlgorithm,
                 ChunkSize = session.ChunkSize,
+                LaneCount = session.LaneCount,
                 TotalChunks = session.TotalChunks,
                 ContentType = session.ContentType,
                 Caption = session.Caption
@@ -319,6 +326,7 @@ namespace MessengerServer.Hubs
                 TransferId = transferId,
                 StreamChatId = request.StreamChatId,
                 ReceiverId = receiverId,
+                LaneCount = session.LaneCount,
                 ExpiresAt = _streamTransferService.GetExpiryTime(session.LastActivityAt)
             };
         }

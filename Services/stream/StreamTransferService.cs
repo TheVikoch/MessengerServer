@@ -1,6 +1,9 @@
 ﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Buffers;
+using System.IO;
+using System.Net.WebSockets;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.SignalR;
@@ -98,6 +101,74 @@ namespace MessengerServer.Services.stream
             await session.Channel.Writer.WriteAsync(chunk, cancellationToken);
         }
 
+        public async Task AttachSocketAsync(
+            Guid transferId,
+            Guid userId,
+            StreamTransferSocketRole role,
+            int lane,
+            WebSocket socket,
+            CancellationToken cancellationToken)
+        {
+            var session = GetSessionOrThrow(transferId);
+            ValidateLane(session, lane);
+            ValidateSocketParticipant(session, userId, role);
+
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(session.Cancellation.Token, cancellationToken);
+            var linkedToken = linkedCts.Token;
+
+            WebSocket? previousSocket = null;
+            lock (session.SocketSync)
+            {
+                if (role == StreamTransferSocketRole.Sender)
+                {
+                    previousSocket = session.SenderSockets[lane];
+                    session.SenderSockets[lane] = socket;
+                }
+                else
+                {
+                    previousSocket = session.ReceiverSockets[lane];
+                    session.ReceiverSockets[lane] = socket;
+                }
+            }
+
+            if (previousSocket != null && !ReferenceEquals(previousSocket, socket))
+            {
+                await CloseSocketQuietlyAsync(previousSocket, WebSocketCloseStatus.NormalClosure, "replaced", CancellationToken.None);
+            }
+
+            session.LastActivityAt = DateTime.UtcNow;
+
+            try
+            {
+                if (role == StreamTransferSocketRole.Sender)
+                {
+                    await RelaySenderSocketAsync(session, lane, socket, linkedToken);
+                }
+                else
+                {
+                    await ObserveReceiverSocketAsync(session, lane, socket, linkedToken);
+                }
+            }
+            finally
+            {
+                lock (session.SocketSync)
+                {
+                    if (role == StreamTransferSocketRole.Sender)
+                    {
+                        if (ReferenceEquals(session.SenderSockets[lane], socket))
+                        {
+                            session.SenderSockets[lane] = null;
+                        }
+                    }
+                    else if (ReferenceEquals(session.ReceiverSockets[lane], socket))
+                    {
+                        session.ReceiverSockets[lane] = null;
+                    }
+                }
+
+                await CloseSocketQuietlyAsync(socket, WebSocketCloseStatus.NormalClosure, "closed", CancellationToken.None);
+            }
+        }
         public void CompleteTransfer(Guid transferId, Guid receiverId)
         {
             var session = GetSessionOrThrow(transferId);
@@ -179,6 +250,182 @@ namespace MessengerServer.Services.stream
             return session;
         }
 
+        private void ValidateLane(StreamTransferSession session, int lane)
+        {
+            if (lane < 0 || lane >= session.LaneCount)
+            {
+                throw new InvalidOperationException("Invalid transfer lane");
+            }
+        }
+
+        private void ValidateSocketParticipant(StreamTransferSession session, Guid userId, StreamTransferSocketRole role)
+        {
+            if (session.State == StreamTransferState.Canceled ||
+                session.State == StreamTransferState.Completed ||
+                session.State == StreamTransferState.Failed)
+            {
+                throw new InvalidOperationException("Transfer is already closed");
+            }
+
+            if (role == StreamTransferSocketRole.Sender)
+            {
+                if (session.SenderId != userId)
+                {
+                    throw new UnauthorizedAccessException("Only sender can attach sender socket");
+                }
+
+                if (session.State != StreamTransferState.Active)
+                {
+                    throw new InvalidOperationException("Sender socket requires active transfer");
+                }
+            }
+            else
+            {
+                if (session.ReceiverId != userId)
+                {
+                    throw new UnauthorizedAccessException("Only receiver can attach receiver socket");
+                }
+            }
+        }
+
+        private async Task RelaySenderSocketAsync(StreamTransferSession session, int lane, WebSocket senderSocket, CancellationToken cancellationToken)
+        {
+            var buffer = ArrayPool<byte>.Shared.Rent(GetSocketRelayReadBufferSize(session));
+            using var messageBuffer = new MemoryStream(Math.Max(256 * 1024, session.ChunkSize + 64));
+            try
+            {
+                while (!cancellationToken.IsCancellationRequested && senderSocket.State == WebSocketState.Open)
+                {
+                    messageBuffer.Position = 0;
+                    messageBuffer.SetLength(0);
+
+                    while (true)
+                    {
+                        var result = await senderSocket.ReceiveAsync(new ArraySegment<byte>(buffer), cancellationToken);
+                        if (result.MessageType == WebSocketMessageType.Close)
+                        {
+                            return;
+                        }
+
+                        if (result.MessageType != WebSocketMessageType.Binary)
+                        {
+                            throw new InvalidOperationException("Only binary websocket frames are allowed");
+                        }
+
+                        if (result.Count > 0)
+                        {
+                            messageBuffer.Write(buffer, 0, result.Count);
+                        }
+
+                        if (!result.EndOfMessage)
+                        {
+                            continue;
+                        }
+
+                        break;
+                    }
+
+                    var receiverSocket = await WaitForReceiverSocketAsync(session, lane, cancellationToken);
+                    if (receiverSocket == null)
+                    {
+                        throw new InvalidOperationException("Receiver socket unavailable");
+                    }
+
+                    if (!messageBuffer.TryGetBuffer(out var payload))
+                    {
+                        payload = new ArraySegment<byte>(messageBuffer.ToArray());
+                    }
+
+                    if (payload.Array == null)
+                    {
+                        throw new InvalidOperationException("Failed to prepare websocket payload");
+                    }
+
+                    session.LastActivityAt = DateTime.UtcNow;
+
+                    var sendLock = session.ReceiverSendLocks[lane];
+                    await sendLock.WaitAsync(cancellationToken);
+                    try
+                    {
+                        if (receiverSocket.State != WebSocketState.Open)
+                        {
+                            throw new WebSocketException("Receiver socket is not open");
+                        }
+
+                        await receiverSocket.SendAsync(
+                            new ArraySegment<byte>(payload.Array, payload.Offset, payload.Count),
+                            WebSocketMessageType.Binary,
+                            endOfMessage: true,
+                            cancellationToken);
+                    }
+                    finally
+                    {
+                        sendLock.Release();
+                    }
+                }
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
+            }
+        }
+
+        private static int GetSocketRelayReadBufferSize(StreamTransferSession session)
+        {
+            return Math.Max(256 * 1024, Math.Min(session.ChunkSize + 8 * 1024, 4 * 1024 * 1024));
+        }
+
+        private async Task ObserveReceiverSocketAsync(StreamTransferSession session, int lane, WebSocket receiverSocket, CancellationToken cancellationToken)
+        {
+            var buffer = new byte[1024];
+            while (!cancellationToken.IsCancellationRequested && receiverSocket.State == WebSocketState.Open)
+            {
+                var result = await receiverSocket.ReceiveAsync(new ArraySegment<byte>(buffer), cancellationToken);
+                if (result.MessageType == WebSocketMessageType.Close)
+                {
+                    return;
+                }
+
+                while (!result.EndOfMessage)
+                {
+                    result = await receiverSocket.ReceiveAsync(new ArraySegment<byte>(buffer), cancellationToken);
+                    if (result.MessageType == WebSocketMessageType.Close)
+                    {
+                        return;
+                    }
+                }
+
+                session.LastActivityAt = DateTime.UtcNow;
+            }
+        }
+
+        private async Task<WebSocket?> WaitForReceiverSocketAsync(StreamTransferSession session, int lane, CancellationToken cancellationToken)
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                WebSocket? receiverSocket;
+                lock (session.SocketSync)
+                {
+                    receiverSocket = session.ReceiverSockets[lane];
+                }
+
+                if (receiverSocket != null && receiverSocket.State == WebSocketState.Open)
+                {
+                    return receiverSocket;
+                }
+
+                if (session.State != StreamTransferState.Active &&
+                    session.State != StreamTransferState.AwaitingAcceptance)
+                {
+                    return null;
+                }
+
+                await Task.Delay(25, cancellationToken);
+            }
+
+            return null;
+        }
+
         private async Task RelayChunksAsync(StreamTransferSession session, CancellationToken cancellationToken)
         {
             try
@@ -234,12 +481,72 @@ namespace MessengerServer.Services.stream
             session.State = finalState;
             session.LastActivityAt = DateTime.UtcNow;
 
+            var senderSockets = new List<WebSocket?>();
+            var receiverSockets = new List<WebSocket?>();
+            lock (session.SocketSync)
+            {
+                for (var lane = 0; lane < session.LaneCount; lane++)
+                {
+                    senderSockets.Add(session.SenderSockets[lane]);
+                    receiverSockets.Add(session.ReceiverSockets[lane]);
+                    session.SenderSockets[lane] = null;
+                    session.ReceiverSockets[lane] = null;
+                }
+            }
+
             session.Cancellation.Cancel();
             session.Channel.Writer.TryComplete();
 
             _sessions.TryRemove(session.TransferId, out _);
             _activeByChat.TryRemove(session.StreamChatId, out _);
+
+            var closeStatus = finalState == StreamTransferState.Completed
+                ? WebSocketCloseStatus.NormalClosure
+                : WebSocketCloseStatus.PolicyViolation;
+            var closeDescription = finalState.ToString().ToLowerInvariant();
+
+            foreach (var senderSocket in senderSockets)
+            {
+                _ = CloseSocketQuietlyAsync(senderSocket, closeStatus, closeDescription, CancellationToken.None);
+            }
+            foreach (var receiverSocket in receiverSockets)
+            {
+                _ = CloseSocketQuietlyAsync(receiverSocket, closeStatus, closeDescription, CancellationToken.None);
+            }
+        }
+
+        private static async Task CloseSocketQuietlyAsync(
+            WebSocket? socket,
+            WebSocketCloseStatus closeStatus,
+            string description,
+            CancellationToken cancellationToken)
+        {
+            if (socket == null)
+            {
+                return;
+            }
+
+            try
+            {
+                if (socket.State == WebSocketState.Open || socket.State == WebSocketState.CloseReceived)
+                {
+                    await socket.CloseAsync(closeStatus, description, cancellationToken);
+                }
+            }
+            catch
+            {
+                // Ignore close failures during cleanup.
+            }
+            finally
+            {
+                socket.Dispose();
+            }
         }
     }
 }
+
+
+
+
+
 

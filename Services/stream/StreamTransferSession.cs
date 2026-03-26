@@ -1,4 +1,6 @@
 using System;
+using System.Linq;
+using System.Net.WebSockets;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
@@ -12,6 +14,12 @@ namespace MessengerServer.Services.stream
         Completed,
         Canceled,
         Failed
+    }
+
+    public enum StreamTransferSocketRole
+    {
+        Sender,
+        Receiver
     }
 
     public class StreamTransferChunkEnvelope
@@ -35,6 +43,7 @@ namespace MessengerServer.Services.stream
         public string FileHashAlgorithm { get; }
         public string ChunkHashAlgorithm { get; }
         public int ChunkSize { get; }
+        public int LaneCount { get; }
         public int TotalChunks { get; }
         public string? ContentType { get; }
         public string? Caption { get; }
@@ -44,6 +53,10 @@ namespace MessengerServer.Services.stream
         public Channel<StreamTransferChunkEnvelope> Channel { get; }
         public CancellationTokenSource Cancellation { get; }
         public Task? RelayTask { get; set; }
+        public object SocketSync { get; } = new();
+        public SemaphoreSlim[] ReceiverSendLocks { get; }
+        public WebSocket?[] SenderSockets { get; }
+        public WebSocket?[] ReceiverSockets { get; }
 
         public StreamTransferSession(
             Guid transferId,
@@ -56,6 +69,7 @@ namespace MessengerServer.Services.stream
             string fileHashAlgorithm,
             string chunkHashAlgorithm,
             int chunkSize,
+            int laneCount,
             int totalChunks,
             string? contentType,
             string? caption,
@@ -71,6 +85,7 @@ namespace MessengerServer.Services.stream
             FileHashAlgorithm = fileHashAlgorithm;
             ChunkHashAlgorithm = chunkHashAlgorithm;
             ChunkSize = chunkSize;
+            LaneCount = Math.Max(1, Math.Min(laneCount, Math.Max(1, totalChunks)));
             TotalChunks = totalChunks;
             ContentType = contentType;
             Caption = caption;
@@ -78,6 +93,11 @@ namespace MessengerServer.Services.stream
             CreatedAt = DateTime.UtcNow;
             LastActivityAt = CreatedAt;
             Cancellation = new CancellationTokenSource();
+            SenderSockets = new WebSocket?[LaneCount];
+            ReceiverSockets = new WebSocket?[LaneCount];
+            ReceiverSendLocks = Enumerable.Range(0, LaneCount)
+                .Select(_ => new SemaphoreSlim(1, 1))
+                .ToArray();
             Channel = System.Threading.Channels.Channel.CreateBounded<StreamTransferChunkEnvelope>(new BoundedChannelOptions(windowSize)
             {
                 SingleReader = true,
