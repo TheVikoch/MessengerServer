@@ -71,6 +71,7 @@ namespace MessengerServer.Models.DTOs
     {
         public Guid TransferId { get; set; }
         public List<int> Seqs { get; set; } = new();
+        public int AckUpToSeq { get; set; } = -1;
     }
 
     public class StreamTransferNackDto

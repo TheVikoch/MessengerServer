@@ -346,8 +346,17 @@ namespace MessengerServer.Services.stream
 
                     session.LastActivityAt = DateTime.UtcNow;
                     var receiverLane = GetReceiverLaneForBinaryFrame(session, payload);
-                    var payloadCopy = CopyPayload(payload);
-                    await session.ReceiverOutboundChannels[receiverLane].Writer.WriteAsync(payloadCopy, cancellationToken);
+                    PooledPayloadBuffer? payloadCopy = null;
+                    try
+                    {
+                        payloadCopy = PooledPayloadBuffer.Rent(payload);
+                        await session.ReceiverOutboundChannels[receiverLane].Writer.WriteAsync(payloadCopy, cancellationToken);
+                        payloadCopy = null;
+                    }
+                    finally
+                    {
+                        payloadCopy?.Dispose();
+                    }
                 }
             }
             finally
@@ -362,30 +371,33 @@ namespace MessengerServer.Services.stream
             {
                 await foreach (var payload in session.ReceiverOutboundChannels[lane].Reader.ReadAllAsync(cancellationToken))
                 {
-                    var receiverSocket = await WaitForReceiverSocketAsync(session, lane, cancellationToken);
-                    if (receiverSocket == null)
+                    using (payload)
                     {
-                        throw new InvalidOperationException("Receiver socket unavailable");
-                    }
-
-                    var sendLock = session.ReceiverSendLocks[lane];
-                    await sendLock.WaitAsync(cancellationToken);
-                    try
-                    {
-                        if (receiverSocket.State != WebSocketState.Open)
+                        var receiverSocket = await WaitForReceiverSocketAsync(session, lane, cancellationToken);
+                        if (receiverSocket == null)
                         {
-                            throw new WebSocketException("Receiver socket is not open");
+                            throw new InvalidOperationException("Receiver socket unavailable");
                         }
 
-                        await receiverSocket.SendAsync(
-                            new ArraySegment<byte>(payload),
-                            WebSocketMessageType.Binary,
-                            endOfMessage: true,
-                            cancellationToken);
-                    }
-                    finally
-                    {
-                        sendLock.Release();
+                        var sendLock = session.ReceiverSendLocks[lane];
+                        await sendLock.WaitAsync(cancellationToken);
+                        try
+                        {
+                            if (receiverSocket.State != WebSocketState.Open)
+                            {
+                                throw new WebSocketException("Receiver socket is not open");
+                            }
+
+                            await receiverSocket.SendAsync(
+                                new ArraySegment<byte>(payload.Buffer, 0, payload.Length),
+                                WebSocketMessageType.Binary,
+                                endOfMessage: true,
+                                cancellationToken);
+                        }
+                        finally
+                        {
+                            sendLock.Release();
+                        }
                     }
 
                     session.LastActivityAt = DateTime.UtcNow;
@@ -414,18 +426,6 @@ namespace MessengerServer.Services.stream
                 ((payload.Array[baseOffset + 2] & 0xFF) << 8) |
                 (payload.Array[baseOffset + 3] & 0xFF);
             return Math.Abs(seq % Math.Max(1, session.ReceiverLaneCount));
-        }
-
-        private static byte[] CopyPayload(ArraySegment<byte> payload)
-        {
-            if (payload.Array == null)
-            {
-                throw new InvalidOperationException("Binary payload is missing");
-            }
-
-            var copy = new byte[payload.Count];
-            Buffer.BlockCopy(payload.Array, payload.Offset, copy, 0, payload.Count);
-            return copy;
         }
 
         private static int GetSocketRelayReadBufferSize(StreamTransferSession session)
@@ -561,6 +561,10 @@ namespace MessengerServer.Services.stream
             foreach (var outboundChannel in session.ReceiverOutboundChannels)
             {
                 outboundChannel.Writer.TryComplete();
+                while (outboundChannel.Reader.TryRead(out var payload))
+                {
+                    payload.Dispose();
+                }
             }
 
             _sessions.TryRemove(session.TransferId, out _);

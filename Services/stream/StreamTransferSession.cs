@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Linq;
 using System.Net.WebSockets;
 using System.Threading;
@@ -31,6 +32,45 @@ namespace MessengerServer.Services.stream
         public bool IsLast { get; set; }
     }
 
+    public sealed class PooledPayloadBuffer : IDisposable
+    {
+        private readonly ArrayPool<byte> _pool;
+        private byte[]? _buffer;
+
+        private PooledPayloadBuffer(ArrayPool<byte> pool, byte[] buffer, int length)
+        {
+            _pool = pool;
+            _buffer = buffer;
+            Length = length;
+        }
+
+        public int Length { get; }
+
+        public byte[] Buffer => _buffer ?? throw new ObjectDisposedException(nameof(PooledPayloadBuffer));
+
+        public static PooledPayloadBuffer Rent(ArraySegment<byte> payload)
+        {
+            if (payload.Array == null)
+            {
+                throw new InvalidOperationException("Binary payload is missing");
+            }
+
+            var pool = ArrayPool<byte>.Shared;
+            var rented = pool.Rent(payload.Count);
+            System.Buffer.BlockCopy(payload.Array, payload.Offset, rented, 0, payload.Count);
+            return new PooledPayloadBuffer(pool, rented, payload.Count);
+        }
+
+        public void Dispose()
+        {
+            var buffer = Interlocked.Exchange(ref _buffer, null);
+            if (buffer != null)
+            {
+                _pool.Return(buffer);
+            }
+        }
+    }
+
     public class StreamTransferSession
     {
         public Guid TransferId { get; }
@@ -57,7 +97,7 @@ namespace MessengerServer.Services.stream
         public Task[] ReceiverRelayTasks { get; }
         public object SocketSync { get; } = new();
         public SemaphoreSlim[] ReceiverSendLocks { get; }
-        public Channel<byte[]>[] ReceiverOutboundChannels { get; }
+        public Channel<PooledPayloadBuffer>[] ReceiverOutboundChannels { get; }
         public WebSocket?[] SenderSockets { get; }
         public WebSocket?[] ReceiverSockets { get; }
 
@@ -106,7 +146,7 @@ namespace MessengerServer.Services.stream
                 .ToArray();
             var receiverLaneQueueSize = Math.Max(4, (windowSize + ReceiverLaneCount - 1) / ReceiverLaneCount);
             ReceiverOutboundChannels = Enumerable.Range(0, ReceiverLaneCount)
-                .Select(_ => System.Threading.Channels.Channel.CreateBounded<byte[]>(new BoundedChannelOptions(receiverLaneQueueSize)
+                .Select(_ => System.Threading.Channels.Channel.CreateBounded<PooledPayloadBuffer>(new BoundedChannelOptions(receiverLaneQueueSize)
                 {
                     SingleReader = true,
                     SingleWriter = false,

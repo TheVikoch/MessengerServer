@@ -16,6 +16,8 @@ MessengerClient/
 obj/
 .vs/
 bin/
+.dotnet/
+.nuget-packages/
 
 # User-specific files
 *.rsuser
