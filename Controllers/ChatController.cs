@@ -120,6 +120,32 @@ namespace MessengerServer.Controllers
         }
 
         /// <summary>
+        /// Search users by part of their display name.
+        /// </summary>
+        /// <param name="query">Part of the display name to search for</param>
+        /// <param name="limit">Maximum number of results to return</param>
+        /// <returns>Matching users with existing personal chat info when available</returns>
+        [HttpGet("users/search")]
+        public async Task<IActionResult> SearchUsers([FromQuery] string query, [FromQuery] int limit = 10)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(query))
+                {
+                    return Ok(Array.Empty<UserSearchResultDto>());
+                }
+
+                var userId = GetCurrentUserId();
+                var result = await _chatService.SearchUsersAsync(userId, query, limit);
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
+        /// <summary>
         /// Add a member to a group chat by email
         /// </summary>
         /// <param name="conversationId">Conversation ID</param>

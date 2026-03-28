@@ -29,6 +29,7 @@ builder.Services.Configure<S3Options>(builder.Configuration.GetSection("S3"));
 builder.Services.AddScoped<MessengerServer.Services.auth.IAuthService, MessengerServer.Services.auth.AuthService>();
 builder.Services.AddScoped<MessengerServer.Services.encryption.IEncryptionService, MessengerServer.Services.encryption.EncryptionService>();
 builder.Services.AddScoped<MessengerServer.Services.chat.IChatService, MessengerServer.Services.chat.ChatService>();
+builder.Services.AddScoped<MessengerServer.Services.profile.IUserProfileService, MessengerServer.Services.profile.UserProfileService>();
 builder.Services.AddScoped<MessengerServer.Services.storage.IStorageService, MessengerServer.Services.storage.S3StorageService>();
 builder.Services.AddScoped<MessengerServer.Services.media.IMediaService, MessengerServer.Services.media.MediaService>();
 builder.Services.AddScoped<MessengerServer.Services.stream.IStreamInviteService, MessengerServer.Services.stream.StreamInviteService>();

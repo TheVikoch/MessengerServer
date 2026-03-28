@@ -72,5 +72,14 @@ namespace MessengerServer.Services.storage
                 return false;
             }
         }
+
+        public async Task DeleteAsync(string objectKey)
+        {
+            await _s3.DeleteObjectAsync(new DeleteObjectRequest
+            {
+                BucketName = _options.BucketName,
+                Key = objectKey
+            });
+        }
     }
 }

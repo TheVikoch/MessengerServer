@@ -177,6 +177,82 @@ namespace MessengerServer.Services.chat
             return await GetConversationDtoAsync(conversation.Id, currentUserId);
         }
 
+        public async Task<List<UserSearchResultDto>> SearchUsersAsync(Guid currentUserId, string query, int limit)
+        {
+            var trimmedQuery = query?.Trim();
+            if (string.IsNullOrWhiteSpace(trimmedQuery))
+            {
+                return new List<UserSearchResultDto>();
+            }
+
+            limit = Math.Clamp(limit, 1, 20);
+
+            var matchedUsers = await _context.Users
+                .AsNoTracking()
+                .Where(u =>
+                    u.Id != currentUserId &&
+                    u.DisplayName != null &&
+                    EF.Functions.ILike(u.DisplayName, $"%{trimmedQuery}%"))
+                .Select(u => new UserSearchResultDto
+                {
+                    Id = u.Id,
+                    DisplayName = u.DisplayName ?? string.Empty,
+                    LatestProfilePhotoId = u.ProfilePhotos
+                        .Where(p => !p.IsDeleted && p.Status == "Ready")
+                        .OrderByDescending(p => p.CreatedAt)
+                        .Select(p => (Guid?)p.Id)
+                        .FirstOrDefault()
+                })
+                .ToListAsync();
+
+            var orderedUsers = matchedUsers
+                .OrderByDescending(u => u.DisplayName.StartsWith(trimmedQuery, StringComparison.OrdinalIgnoreCase))
+                .ThenBy(u => u.DisplayName, StringComparer.OrdinalIgnoreCase)
+                .Take(limit)
+                .ToList();
+
+            if (orderedUsers.Count == 0)
+            {
+                return orderedUsers;
+            }
+
+            var userIds = orderedUsers
+                .Select(u => u.Id)
+                .ToList();
+
+            var existingChats = await _context.Conversations
+                .AsNoTracking()
+                .Where(c =>
+                    !c.IsDeleted &&
+                    c.Type == "personal" &&
+                    c.Members.Any(m => m.UserId == currentUserId) &&
+                    c.Members.Any(m => userIds.Contains(m.UserId)))
+                .Select(c => new
+                {
+                    ConversationId = c.Id,
+                    OtherUserId = c.Members
+                        .Where(m => m.UserId != currentUserId)
+                        .Select(m => m.UserId)
+                        .FirstOrDefault()
+                })
+                .ToListAsync();
+
+            var existingConversationByUserId = existingChats
+                .Where(item => item.OtherUserId != Guid.Empty)
+                .GroupBy(item => item.OtherUserId)
+                .ToDictionary(group => group.Key, group => (Guid?)group.First().ConversationId);
+
+            foreach (var user in orderedUsers)
+            {
+                if (existingConversationByUserId.TryGetValue(user.Id, out var conversationId))
+                {
+                    user.ExistingConversationId = conversationId;
+                }
+            }
+
+            return orderedUsers;
+        }
+
         public async Task<ConversationDto> GetConversationAsync(Guid userId, Guid conversationId)
         {
             // Check if user is a member of the conversation
@@ -363,7 +439,12 @@ namespace MessengerServer.Services.chat
                             {
                                 Id = m.User.Id,
                                 Email = m.User.Email,
-                                DisplayName = m.User.DisplayName ?? string.Empty
+                                DisplayName = m.User.DisplayName ?? string.Empty,
+                                LatestProfilePhotoId = m.User.ProfilePhotos
+                                    .Where(p => !p.IsDeleted && p.Status == "Ready")
+                                    .OrderByDescending(p => p.CreatedAt)
+                                    .Select(p => (Guid?)p.Id)
+                                    .FirstOrDefault()
                             },
                             Role = m.Role,
                             JoinedAt = m.JoinedAt,

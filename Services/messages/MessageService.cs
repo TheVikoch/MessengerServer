@@ -299,7 +299,12 @@ namespace MessengerServer.Services.messages
                 {
                     Id = u.Id,
                     Email = u.Email, // This is encrypted in DB
-                    DisplayName = u.DisplayName ?? string.Empty
+                    DisplayName = u.DisplayName ?? string.Empty,
+                    LatestProfilePhotoId = u.ProfilePhotos
+                        .Where(p => !p.IsDeleted && p.Status == "Ready")
+                        .OrderByDescending(p => p.CreatedAt)
+                        .Select(p => (Guid?)p.Id)
+                        .FirstOrDefault()
                 })
                 .FirstOrDefaultAsync();
 

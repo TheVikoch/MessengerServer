@@ -8,5 +8,6 @@ namespace MessengerServer.Services.storage
         Task<string> GetUploadUrlAsync(string objectKey, string contentType, TimeSpan expiresIn);
         Task<string> GetDownloadUrlAsync(string objectKey, TimeSpan expiresIn);
         Task<bool> ExistsAsync(string objectKey);
+        Task DeleteAsync(string objectKey);
     }
 }

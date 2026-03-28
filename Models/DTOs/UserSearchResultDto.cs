@@ -1,12 +1,12 @@
-﻿using System;
+using System;
 
 namespace MessengerServer.Models.DTOs
 {
-    public class UserDto
+    public class UserSearchResultDto
     {
         public Guid Id { get; set; }
-        public string Email { get; set; } = string.Empty;
         public string DisplayName { get; set; } = string.Empty;
+        public Guid? ExistingConversationId { get; set; }
         public Guid? LatestProfilePhotoId { get; set; }
     }
 }

@@ -5,6 +5,7 @@ public class User
     public Guid Id { get; set; }
     public string Email { get; set; } = string.Empty;
     public string? DisplayName { get; set; }
+    public string? AboutMe { get; set; }
     public string PasswordHash { get; set; } = string.Empty;
     public string PasswordSalt { get; set; } = string.Empty;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
@@ -14,4 +15,5 @@ public class User
 
     // Navigation property for sessions
     public IList<Session> Sessions { get; set; } = new List<Session>();
+    public IList<UserProfilePhoto> ProfilePhotos { get; set; } = new List<UserProfilePhoto>();
 }
