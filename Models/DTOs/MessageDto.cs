@@ -12,6 +12,7 @@ namespace MessengerServer.Models.DTOs
         public string Kind { get; set; } = "text";
         public string? MetadataJson { get; set; }
         public DateTime SentAt { get; set; }
+        public DateTime? EditedAt { get; set; }
         public bool IsDeleted { get; set; }
         public string? ReplyToMessageId { get; set; }
         public List<MessageAttachmentDto> Attachments { get; set; } = new();

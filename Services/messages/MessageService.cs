@@ -180,21 +180,82 @@ namespace MessengerServer.Services.messages
             return await GetMessageDtoAsync(message);
         }
 
+        public async Task<MessageDto> UpdateMessageAsync(Guid userId, Guid conversationId, string messageId, UpdateMessageDto updateMessageDto)
+        {
+            var message = await RequireEditableMessageAsync(userId, conversationId, messageId, requirePersonalConversation: false);
+
+            if (string.IsNullOrWhiteSpace(updateMessageDto.Content) && message.Attachments.Count == 0)
+            {
+                throw new ArgumentException("Message content or attachments are required");
+            }
+
+            var encryptedContent = _encryptionService.Encrypt(updateMessageDto.Content ?? string.Empty);
+            var editedAt = DateTime.UtcNow;
+
+            var update = Builders<Message>.Update
+                .Set(m => m.EncryptedContent, encryptedContent)
+                .Set(m => m.EditedAt, editedAt);
+
+            await _messages.UpdateOneAsync(m => m.Id == messageId, update);
+            message.EncryptedContent = encryptedContent;
+            message.EditedAt = editedAt;
+
+            return await GetMessageDtoAsync(message);
+        }
+
+        public async Task DeleteMessageForUserAsync(Guid userId, Guid conversationId, string messageId)
+        {
+            await RequireVisibleMessageAsync(userId, conversationId, messageId);
+
+            var existing = await _context.DeletedMessagesForUsers
+                .FirstOrDefaultAsync(entry => entry.UserId == userId && entry.MessageId == messageId);
+
+            if (existing == null)
+            {
+                _context.DeletedMessagesForUsers.Add(new DeletedMessageForUser
+                {
+                    UserId = userId,
+                    ConversationId = conversationId,
+                    MessageId = messageId,
+                    DeletedAt = DateTime.UtcNow
+                });
+
+                await _context.SaveChangesAsync();
+            }
+        }
+
+        public async Task DeleteMessageForEveryoneAsync(Guid userId, Guid conversationId, string messageId)
+        {
+            var message = await RequireEditableMessageAsync(userId, conversationId, messageId, requirePersonalConversation: true);
+
+            var update = Builders<Message>.Update
+                .Set(m => m.IsDeleted, true);
+
+            await _messages.UpdateOneAsync(m => m.Id == messageId, update);
+            message.IsDeleted = true;
+
+            var hiddenEntries = await _context.DeletedMessagesForUsers
+                .Where(entry => entry.MessageId == messageId)
+                .ToListAsync();
+
+            if (hiddenEntries.Count > 0)
+            {
+                _context.DeletedMessagesForUsers.RemoveRange(hiddenEntries);
+                await _context.SaveChangesAsync();
+            }
+        }
+
         public async Task<MessagesResponseDto> GetMessagesAsync(Guid userId, Guid conversationId, int limit = 50, string? cursor = null)
         {
-            // Verify that user is a member of the conversation
-            var isMember = await _context.ConversationMembers
-                .AnyAsync(cm => cm.ConversationId == conversationId && cm.UserId == userId);
+            var member = await _context.ConversationMembers
+                .FirstOrDefaultAsync(cm => cm.ConversationId == conversationId && cm.UserId == userId);
 
-            if (!isMember)
+            if (member == null)
             {
                 throw new UnauthorizedAccessException("You are not a member of this conversation");
             }
 
-            var filter = Builders<Message>.Filter.And(
-                Builders<Message>.Filter.Eq(m => m.ConversationId, conversationId),
-                Builders<Message>.Filter.Eq(m => m.IsDeleted, false)
-            );
+            var filter = await BuildVisibleMessageFilterAsync(userId, conversationId, member.ClearedAt);
 
             // If cursor provided, get messages older than cursor
             if (!string.IsNullOrEmpty(cursor) && DateTime.TryParse(cursor, out var cursorDate))
@@ -238,23 +299,148 @@ namespace MessengerServer.Services.messages
             };
         }
 
-        public async Task<int> GetUnreadCountAsync(Guid userId, Guid conversationId)
+        public async Task<ConversationAttachmentsResponseDto> GetConversationAttachmentsAsync(
+            Guid userId,
+            Guid conversationId,
+            int limit = 100,
+            string? cursor = null)
         {
-            // Get the last read time for this user in this conversation
             var member = await _context.ConversationMembers
                 .FirstOrDefaultAsync(cm => cm.ConversationId == conversationId && cm.UserId == userId);
 
-            if (member == null || member.LastReadAt == null)
+            if (member == null)
+            {
+                throw new UnauthorizedAccessException("You are not a member of this conversation");
+            }
+
+            var filter = await BuildVisibleMessageFilterAsync(userId, conversationId, member.ClearedAt);
+            filter = Builders<Message>.Filter.And(
+                filter,
+                Builders<Message>.Filter.Exists("Attachments.0")
+            );
+
+            if (!string.IsNullOrEmpty(cursor) && DateTime.TryParse(cursor, out var cursorDate))
+            {
+                filter = Builders<Message>.Filter.And(
+                    filter,
+                    Builders<Message>.Filter.Lt(m => m.SentAt, cursorDate)
+                );
+            }
+
+            var messages = await _messages
+                .Find(filter)
+                .Sort(Builders<Message>.Sort.Descending(m => m.SentAt))
+                .Limit(limit + 1)
+                .ToListAsync();
+
+            var hasMore = messages.Count > limit;
+            if (hasMore)
+            {
+                messages = messages.Take(limit).ToList();
+            }
+
+            var senderIds = messages
+                .Select(m => m.SenderId)
+                .Distinct()
+                .ToList();
+
+            var senders = await _context.Users
+                .Where(u => senderIds.Contains(u.Id))
+                .Select(u => new
+                {
+                    u.Id,
+                    DisplayName = u.DisplayName ?? string.Empty,
+                    u.Email
+                })
+                .ToListAsync();
+
+            var senderLabels = senders.ToDictionary(
+                sender => sender.Id,
+                sender =>
+                {
+                    if (!string.IsNullOrWhiteSpace(sender.DisplayName))
+                    {
+                        return sender.DisplayName;
+                    }
+
+                    return string.IsNullOrWhiteSpace(sender.Email)
+                        ? "Собеседник"
+                        : _encryptionService.Decrypt(sender.Email);
+                }
+            );
+
+            var attachments = new List<ConversationAttachmentEntryDto>();
+            foreach (var message in messages)
+            {
+                var senderLabel = senderLabels.TryGetValue(message.SenderId, out var resolvedLabel) &&
+                    !string.IsNullOrWhiteSpace(resolvedLabel)
+                    ? resolvedLabel
+                    : "Собеседник";
+
+                foreach (var attachment in message.Attachments)
+                {
+                    attachments.Add(new ConversationAttachmentEntryDto
+                    {
+                        ConversationId = message.ConversationId,
+                        MessageId = message.Id,
+                        SenderLabel = senderLabel,
+                        SentAt = message.SentAt,
+                        Attachment = new MessageAttachmentDto
+                        {
+                            Id = attachment.Id,
+                            FileName = attachment.FileName,
+                            ContentType = attachment.ContentType,
+                            Size = attachment.Size,
+                            Status = attachment.Status,
+                            CreatedAt = attachment.CreatedAt,
+                            Encryption = attachment.Encryption == null
+                                ? null
+                                : new MediaEncryptionMetadataDto
+                                {
+                                    Algorithm = attachment.Encryption.Algorithm,
+                                    KeyId = attachment.Encryption.KeyId,
+                                    IvBase64 = attachment.Encryption.IvBase64,
+                                    Version = attachment.Encryption.Version
+                                }
+                        }
+                    });
+                }
+            }
+
+            return new ConversationAttachmentsResponseDto
+            {
+                Attachments = attachments,
+                HasMore = hasMore,
+                NextCursor = hasMore && messages.Any() ? messages.Last().SentAt.ToString("o") : null
+            };
+        }
+
+        public async Task<int> GetUnreadCountAsync(Guid userId, Guid conversationId)
+        {
+            var member = await _context.ConversationMembers
+                .FirstOrDefaultAsync(cm => cm.ConversationId == conversationId && cm.UserId == userId);
+
+            if (member == null)
+            {
+                throw new UnauthorizedAccessException("You are not a member of this conversation");
+            }
+
+            var threshold = member.LastReadAt;
+            if (member.ClearedAt.HasValue && (!threshold.HasValue || member.ClearedAt > threshold))
+            {
+                threshold = member.ClearedAt;
+            }
+
+            if (threshold == null)
             {
                 return 0;
             }
 
-            // Count messages sent after LastReadAt by other users
-            var filter = Builders<Message>.Filter.And(
-                Builders<Message>.Filter.Eq(m => m.ConversationId, conversationId),
-                Builders<Message>.Filter.Gt(m => m.SentAt, member.LastReadAt),
-                Builders<Message>.Filter.Ne(m => m.SenderId, userId),
-                Builders<Message>.Filter.Eq(m => m.IsDeleted, false)
+            var filter = await BuildVisibleMessageFilterAsync(userId, conversationId, member.ClearedAt);
+            filter = Builders<Message>.Filter.And(
+                filter,
+                Builders<Message>.Filter.Gt(m => m.SentAt, threshold.Value),
+                Builders<Message>.Filter.Ne(m => m.SenderId, userId)
             );
 
             var count = await _messages.CountDocumentsAsync(filter);
@@ -318,6 +504,7 @@ namespace MessengerServer.Services.messages
                 Kind = message.Kind,
                 MetadataJson = message.MetadataJson,
                 SentAt = message.SentAt,
+                EditedAt = message.EditedAt,
                 IsDeleted = message.IsDeleted,
                 ReplyToMessageId = message.ReplyToMessageId,
                 Attachments = message.Attachments.Select(a => new MessageAttachmentDto
@@ -339,6 +526,112 @@ namespace MessengerServer.Services.messages
                         }
                 }).ToList()
             };
+        }
+
+        private async Task<FilterDefinition<Message>> BuildVisibleMessageFilterAsync(
+            Guid userId,
+            Guid conversationId,
+            DateTime? clearedAt)
+        {
+            var deletedMessageIds = await _context.DeletedMessagesForUsers
+                .Where(entry => entry.UserId == userId && entry.ConversationId == conversationId)
+                .Select(entry => entry.MessageId)
+                .ToListAsync();
+
+            var filter = Builders<Message>.Filter.And(
+                Builders<Message>.Filter.Eq(m => m.ConversationId, conversationId),
+                Builders<Message>.Filter.Eq(m => m.IsDeleted, false)
+            );
+
+            if (clearedAt.HasValue)
+            {
+                filter = Builders<Message>.Filter.And(
+                    filter,
+                    Builders<Message>.Filter.Gt(m => m.SentAt, clearedAt.Value)
+                );
+            }
+
+            if (deletedMessageIds.Count > 0)
+            {
+                filter = Builders<Message>.Filter.And(
+                    filter,
+                    Builders<Message>.Filter.Nin(m => m.Id, deletedMessageIds)
+                );
+            }
+
+            return filter;
+        }
+
+        private async Task<Message> RequireVisibleMessageAsync(Guid userId, Guid conversationId, string messageId)
+        {
+            var member = await _context.ConversationMembers
+                .FirstOrDefaultAsync(cm => cm.ConversationId == conversationId && cm.UserId == userId);
+
+            if (member == null)
+            {
+                throw new UnauthorizedAccessException("You are not a member of this conversation");
+            }
+
+            var filter = await BuildVisibleMessageFilterAsync(userId, conversationId, member.ClearedAt);
+            filter = Builders<Message>.Filter.And(
+                filter,
+                Builders<Message>.Filter.Eq(m => m.Id, messageId)
+            );
+
+            var message = await _messages.Find(filter).FirstOrDefaultAsync();
+            if (message == null)
+            {
+                throw new KeyNotFoundException("Message not found");
+            }
+
+            return message;
+        }
+
+        private async Task<Message> RequireEditableMessageAsync(
+            Guid userId,
+            Guid conversationId,
+            string messageId,
+            bool requirePersonalConversation)
+        {
+            var member = await _context.ConversationMembers
+                .FirstOrDefaultAsync(cm => cm.ConversationId == conversationId && cm.UserId == userId);
+
+            if (member == null)
+            {
+                throw new UnauthorizedAccessException("You are not a member of this conversation");
+            }
+
+            var conversation = await _context.Conversations
+                .FirstOrDefaultAsync(c => c.Id == conversationId && !c.IsDeleted);
+
+            if (conversation == null)
+            {
+                throw new KeyNotFoundException("Conversation not found");
+            }
+
+            if (requirePersonalConversation &&
+                !string.Equals(conversation.Type, "personal", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("This action is available only in personal chats");
+            }
+
+            var message = await _messages.Find(m =>
+                    m.Id == messageId &&
+                    m.ConversationId == conversationId &&
+                    !m.IsDeleted)
+                .FirstOrDefaultAsync();
+
+            if (message == null)
+            {
+                throw new KeyNotFoundException("Message not found");
+            }
+
+            if (message.SenderId != userId)
+            {
+                throw new UnauthorizedAccessException("You can only modify your own messages");
+            }
+
+            return message;
         }
     }
 }

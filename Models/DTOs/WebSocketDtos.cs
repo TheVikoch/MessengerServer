@@ -99,4 +99,38 @@ namespace MessengerServer.Models.DTOs
             Type = "typing";
         }
     }
+
+    public class MessageUpdatedEventDto : WebSocketEventDto
+    {
+        public Guid ConversationId { get; set; }
+        public MessageDto Message { get; set; } = new MessageDto();
+
+        public MessageUpdatedEventDto()
+        {
+            Type = "message_updated";
+        }
+    }
+
+    public class MessageDeletedEventDto : WebSocketEventDto
+    {
+        public Guid ConversationId { get; set; }
+        public string MessageId { get; set; } = string.Empty;
+        public bool DeletedForEveryone { get; set; }
+
+        public MessageDeletedEventDto()
+        {
+            Type = "message_deleted";
+        }
+    }
+
+    public class ConversationDeletedEventDto : WebSocketEventDto
+    {
+        public Guid ConversationId { get; set; }
+        public bool DeletedForEveryone { get; set; }
+
+        public ConversationDeletedEventDto()
+        {
+            Type = "conversation_deleted";
+        }
+    }
 }

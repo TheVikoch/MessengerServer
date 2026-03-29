@@ -8,6 +8,7 @@ namespace MessengerServer.Models.DTOs
         public Guid Id { get; set; }
         public string Type { get; set; } = string.Empty; // "personal" or "group"
         public string? Name { get; set; }
+        public Guid? AvatarPhotoId { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime? LastMessageAt { get; set; }
         public string? LastMessageContent { get; set; }

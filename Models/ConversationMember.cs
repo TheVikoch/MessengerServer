@@ -12,6 +12,7 @@ namespace MessengerServer.Models
         public bool IsPinned { get; set; } = false;
         public string? LastReadMessageId { get; set; }
         public DateTime? LastReadAt { get; set; }
+        public DateTime? ClearedAt { get; set; }
 
         // Navigation properties
         public Conversation? Conversation { get; set; }

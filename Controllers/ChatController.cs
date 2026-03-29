@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using MessengerServer.Models.DTOs;
 using MessengerServer.Services.chat;
+using MessengerServer.Services.websocket;
 
 namespace MessengerServer.Controllers
 {
@@ -13,10 +14,12 @@ namespace MessengerServer.Controllers
     public class ChatController : ControllerBase
     {
         private readonly IChatService _chatService;
+        private readonly IWebSocketNotifier _webSocketNotifier;
 
-        public ChatController(IChatService chatService)
+        public ChatController(IChatService chatService, IWebSocketNotifier webSocketNotifier)
         {
             _chatService = chatService;
+            _webSocketNotifier = webSocketNotifier;
         }
 
         /// <summary>
@@ -138,6 +141,150 @@ namespace MessengerServer.Controllers
                 var userId = GetCurrentUserId();
                 var result = await _chatService.SearchUsersAsync(userId, query, limit);
                 return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
+        [HttpDelete("{conversationId}/me")]
+        public async Task<IActionResult> DeleteConversationForMe(Guid conversationId)
+        {
+            try
+            {
+                var userId = GetCurrentUserId();
+                await _chatService.DeleteConversationForUserAsync(userId, conversationId);
+                return NoContent();
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return Forbid();
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
+        [HttpDelete("{conversationId}/everyone")]
+        public async Task<IActionResult> DeleteConversationForEveryone(Guid conversationId)
+        {
+            try
+            {
+                var userId = GetCurrentUserId();
+                var participantIds = await _chatService.DeletePersonalConversationForEveryoneAsync(userId, conversationId);
+                await _webSocketNotifier.NotifyConversationDeletedAsync(conversationId, participantIds, userId, deletedForEveryone: true);
+                return Ok(participantIds);
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return Forbid();
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
+        [HttpPost("{conversationId}/avatar/init")]
+        public async Task<IActionResult> InitConversationAvatarUpload(Guid conversationId, [FromBody] InitConversationAvatarUploadRequestDto request)
+        {
+            try
+            {
+                var userId = GetCurrentUserId();
+                var result = await _chatService.InitConversationAvatarUploadAsync(userId, conversationId, request);
+                return Ok(result);
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return Forbid();
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
+        [HttpPost("{conversationId}/avatar/complete")]
+        public async Task<IActionResult> CompleteConversationAvatarUpload(Guid conversationId, [FromBody] CompleteConversationAvatarUploadRequestDto request)
+        {
+            try
+            {
+                var userId = GetCurrentUserId();
+                var result = await _chatService.CompleteConversationAvatarUploadAsync(userId, conversationId, request);
+                return Ok(result);
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return Forbid();
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
+        [HttpGet("{conversationId}/avatar/{avatarPhotoId}/url")]
+        public async Task<IActionResult> GetConversationAvatarUrl(Guid conversationId, Guid avatarPhotoId)
+        {
+            try
+            {
+                var userId = GetCurrentUserId();
+                var result = await _chatService.GetConversationAvatarUrlAsync(userId, conversationId, avatarPhotoId);
+                return Ok(result);
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return Forbid();
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { message = ex.Message });
             }
             catch (Exception ex)
             {

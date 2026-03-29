@@ -10,6 +10,7 @@ namespace MessengerServer.Models
         public Guid SenderId { get; set; }
         public string EncryptedContent { get; set; } = string.Empty; // Encrypted message content
         public DateTime SentAt { get; set; } = DateTime.UtcNow;
+        public DateTime? EditedAt { get; set; }
         public bool IsDeleted { get; set; } = false;
         
         // Optional: for reply chain

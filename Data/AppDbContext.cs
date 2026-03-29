@@ -14,6 +14,7 @@ public class AppDbContext : DbContext
     public DbSet<Session> Sessions { get; set; } = null!;
     public DbSet<Conversation> Conversations { get; set; } = null!;
     public DbSet<ConversationMember> ConversationMembers { get; set; } = null!;
+    public DbSet<DeletedMessageForUser> DeletedMessagesForUsers { get; set; } = null!;
     public DbSet<StreamChatInvite> StreamChatInvites { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -58,6 +59,8 @@ public class AppDbContext : DbContext
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Type).IsRequired();
             entity.Property(e => e.Name).HasMaxLength(256);
+            entity.Property(e => e.AvatarObjectKey).HasMaxLength(512);
+            entity.Property(e => e.AvatarContentType).HasMaxLength(128);
             entity.Property(e => e.IsDeleted).IsRequired();
         });
 
@@ -68,11 +71,26 @@ public class AppDbContext : DbContext
             entity.Property(e => e.Role).IsRequired();
             entity.Property(e => e.JoinedAt).IsRequired();
             entity.Property(e => e.IsPinned).IsRequired();
+            entity.Property(e => e.ClearedAt).IsRequired(false);
 
             entity.HasOne(e => e.Conversation)
                 .WithMany(c => c.Members)
                 .HasForeignKey(e => e.ConversationId)
                 .OnDelete(Microsoft.EntityFrameworkCore.DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.User)
+                .WithMany()
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(Microsoft.EntityFrameworkCore.DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<DeletedMessageForUser>(entity =>
+        {
+            entity.ToTable("DeletedMessagesForUsers");
+            entity.HasKey(e => new { e.UserId, e.MessageId });
+            entity.Property(e => e.MessageId).HasMaxLength(64).IsRequired();
+            entity.Property(e => e.DeletedAt).IsRequired();
+            entity.HasIndex(e => new { e.UserId, e.ConversationId });
 
             entity.HasOne(e => e.User)
                 .WithMany()

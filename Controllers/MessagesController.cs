@@ -1,8 +1,10 @@
-using System;
+﻿using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using MessengerServer.Models.DTOs;
+using MessengerServer.Services.chat;
 using MessengerServer.Services.messages;
 using MessengerServer.Services.websocket;
 
@@ -14,11 +16,16 @@ namespace MessengerServer.Controllers
     public class MessagesController : ControllerBase
     {
         private readonly IMessageService _messageService;
+        private readonly IChatService _chatService;
         private readonly IWebSocketNotifier _webSocketNotifier;
 
-        public MessagesController(IMessageService messageService, IWebSocketNotifier webSocketNotifier)
+        public MessagesController(
+            IMessageService messageService,
+            IChatService chatService,
+            IWebSocketNotifier webSocketNotifier)
         {
             _messageService = messageService;
+            _chatService = chatService;
             _webSocketNotifier = webSocketNotifier;
         }
 
@@ -38,20 +45,110 @@ namespace MessengerServer.Controllers
                     return BadRequest(new { message = "Message content or attachments are required" });
                 }
 
+                var shouldNotifyConversationCreated = !await _chatService.HasMessagesAsync(userId, sendMessageDto.ConversationId);
+
                 var result = await _messageService.SendMessageAsync(userId, sendMessageDto);
-                
-                // Отправляем WebSocket уведомление всем участникам беседы
+
+                if (shouldNotifyConversationCreated)
+                {
+                    var updatedConversation = await _chatService.GetConversationAsync(userId, sendMessageDto.ConversationId);
+                    await _webSocketNotifier.NotifyConversationCreatedAsync(updatedConversation, userId);
+                }
+
                 await _webSocketNotifier.NotifyNewMessageAsync(
                     sendMessageDto.ConversationId,
                     result,
                     userId
                 );
-                
+
                 return Ok(result);
             }
             catch (UnauthorizedAccessException)
             {
                 return Forbid();
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
+        [HttpPut("{conversationId}/{messageId}")]
+        public async Task<IActionResult> UpdateMessage(Guid conversationId, string messageId, [FromBody] UpdateMessageDto updateMessageDto)
+        {
+            try
+            {
+                var userId = GetCurrentUserId();
+                var result = await _messageService.UpdateMessageAsync(userId, conversationId, messageId, updateMessageDto);
+                await _webSocketNotifier.NotifyMessageUpdatedAsync(conversationId, result, userId);
+                return Ok(result);
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return Forbid();
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
+        [HttpDelete("{conversationId}/{messageId}/me")]
+        public async Task<IActionResult> DeleteMessageForMe(Guid conversationId, string messageId)
+        {
+            try
+            {
+                var userId = GetCurrentUserId();
+                await _messageService.DeleteMessageForUserAsync(userId, conversationId, messageId);
+                return NoContent();
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return Forbid();
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
+        [HttpDelete("{conversationId}/{messageId}/everyone")]
+        public async Task<IActionResult> DeleteMessageForEveryone(Guid conversationId, string messageId)
+        {
+            try
+            {
+                var userId = GetCurrentUserId();
+                await _messageService.DeleteMessageForEveryoneAsync(userId, conversationId, messageId);
+                await _webSocketNotifier.NotifyMessageDeletedAsync(conversationId, messageId, userId, deletedForEveryone: true);
+                return NoContent();
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return Forbid();
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
             }
             catch (Exception ex)
             {
@@ -68,20 +165,54 @@ namespace MessengerServer.Controllers
         /// <returns>List of messages with optional hasMore and nextCursor</returns>
         [HttpGet("{conversationId}")]
         public async Task<IActionResult> GetMessages(
-            Guid conversationId, 
-            [FromQuery] int limit = 50, 
+            Guid conversationId,
+            [FromQuery] int limit = 50,
             [FromQuery] string? cursor = null)
         {
             try
             {
                 var userId = GetCurrentUserId();
-                
+
                 if (limit <= 0 || limit > 100)
                 {
                     return BadRequest(new { message = "Limit must be between 1 and 100" });
                 }
 
                 var result = await _messageService.GetMessagesAsync(userId, conversationId, limit, cursor);
+                return Ok(result);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return Forbid();
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// Get attachments from the full conversation history (with pagination).
+        /// </summary>
+        /// <param name="conversationId">Conversation ID</param>
+        /// <param name="limit">Number of message pages with attachments to retrieve (default 100, max 100)</param>
+        /// <param name="cursor">ISO 8601 date string for pagination (gets older messages with attachments)</param>
+        [HttpGet("{conversationId}/attachments")]
+        public async Task<IActionResult> GetConversationAttachments(
+            Guid conversationId,
+            [FromQuery] int limit = 100,
+            [FromQuery] string? cursor = null)
+        {
+            try
+            {
+                var userId = GetCurrentUserId();
+
+                if (limit <= 0 || limit > 100)
+                {
+                    return BadRequest(new { message = "Limit must be between 1 and 100" });
+                }
+
+                var result = await _messageService.GetConversationAttachmentsAsync(userId, conversationId, limit, cursor);
                 return Ok(result);
             }
             catch (UnauthorizedAccessException)
@@ -144,8 +275,8 @@ namespace MessengerServer.Controllers
 
         private Guid GetCurrentUserId()
         {
-            var userIdClaim = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier) 
-                ?? User.FindFirst("sub") 
+            var userIdClaim = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)
+                ?? User.FindFirst("sub")
                 ?? User.FindFirst("userId");
 
             if (userIdClaim == null || !Guid.TryParse(userIdClaim.Value, out var userId))
@@ -162,3 +293,4 @@ namespace MessengerServer.Controllers
         }
     }
 }
+

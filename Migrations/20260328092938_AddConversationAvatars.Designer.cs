@@ -3,6 +3,7 @@ using System;
 using MessengerServer.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace MessengerServer.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260328092938_AddConversationAvatars")]
+    partial class AddConversationAvatars
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -75,9 +78,6 @@ namespace MessengerServer.Migrations
                     b.Property<Guid>("UserId")
                         .HasColumnType("uuid");
 
-                    b.Property<DateTime?>("ClearedAt")
-                        .HasColumnType("timestamp with time zone");
-
                     b.Property<bool>("IsPinned")
                         .HasColumnType("boolean");
 
@@ -99,28 +99,6 @@ namespace MessengerServer.Migrations
                     b.HasIndex("UserId");
 
                     b.ToTable("ConversationMembers", (string)null);
-                });
-
-            modelBuilder.Entity("MessengerServer.Models.DeletedMessageForUser", b =>
-                {
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("MessageId")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<Guid>("ConversationId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime>("DeletedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("UserId", "MessageId");
-
-                    b.HasIndex("UserId", "ConversationId");
-
-                    b.ToTable("DeletedMessagesForUsers", (string)null);
                 });
 
             modelBuilder.Entity("MessengerServer.Models.Session", b =>
@@ -322,17 +300,6 @@ namespace MessengerServer.Migrations
                         .IsRequired();
 
                     b.Navigation("Conversation");
-
-                    b.Navigation("User");
-                });
-
-            modelBuilder.Entity("MessengerServer.Models.DeletedMessageForUser", b =>
-                {
-                    b.HasOne("MessengerServer.Models.User", "User")
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
 
                     b.Navigation("User");
                 });

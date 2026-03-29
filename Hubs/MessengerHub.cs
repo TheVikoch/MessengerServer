@@ -690,7 +690,11 @@ namespace MessengerServer.Hubs
         {
             var conversationIds = await _context.ConversationMembers
                 .Where(cm => cm.UserId == userId)
-                .Select(cm => cm.ConversationId)
+                .Join(
+                    _context.Conversations.Where(c => !c.IsDeleted),
+                    member => member.ConversationId,
+                    conversation => conversation.Id,
+                    (member, conversation) => member.ConversationId)
                 .ToListAsync();
 
             foreach (var conversationId in conversationIds)
